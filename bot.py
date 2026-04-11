@@ -17,7 +17,7 @@ API_URL = "https://tntsmm.in/api/v2"
 
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
-WEBHOOK_SECRET = "YOUR_WEBHOOK_SECRET"
+WEBHOOK_SECRET = "ayush@123"
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
