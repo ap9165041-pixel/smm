@@ -10,21 +10,18 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import threading
 import asyncio
 
-# ===== ENV CONFIG =====
+# ===== CONFIG =====
 BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 ADMIN_ID = 8451049817
 
-# ===== LIKE API (OLD) =====
 LIKE_API_KEY = "7d01eb30166546130c171b26eecee191"
 LIKE_API_URL = "https://tntsmm.in/api/v2"
 LIKE_SERVICE_ID = "3062"
 
-# ===== COMMENT API (NEW) =====
 COMMENT_API_KEY = "a6a2e96cd415e968918b20baa261bc4b095f36c1"
 COMMENT_API_URL = "https://smm-jupiter.com/api/v2"
 COMMENT_SERVICE_ID = "13259"
 
-# ===== RAZORPAY =====
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
@@ -42,10 +39,8 @@ cursor.execute("CREATE TABLE IF NOT EXISTS orders (order_id TEXT, telegram_id IN
 cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
 
 # default pricing
-defaults = {"like_price": "25", "comment_price": "250"}
-for k, v in defaults.items():
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES (?, ?)", (k, v))
-
+cursor.execute("INSERT OR IGNORE INTO settings VALUES ('like_price','25')")
+cursor.execute("INSERT OR IGNORE INTO settings VALUES ('comment_price','250')")
 conn.commit()
 
 def get_setting(key):
@@ -162,32 +157,24 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if bal < context.user_data["price"]:
             return await update.message.reply_text("Low balance")
 
-        try:
-            res = requests.post(LIKE_API_URL, data={
-                "key": LIKE_API_KEY,
-                "action": "add",
-                "service": LIKE_SERVICE_ID,
-                "link": context.user_data["link"],
-                "quantity": context.user_data["qty"]
-            }).json()
-        except Exception as e:
-            await bot.send_message(ADMIN_ID, f"LIKE API DOWN: {e}")
-            return await update.message.reply_text("Service unavailable", reply_markup=main_menu())
+        res = requests.post(LIKE_API_URL, data={
+            "key": LIKE_API_KEY,
+            "action": "add",
+            "service": LIKE_SERVICE_ID,
+            "link": context.user_data["link"],
+            "quantity": context.user_data["qty"]
+        }).json()
 
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
-            cursor.execute("INSERT INTO orders VALUES (?,?,?,?,?)",
-                           (res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"]))
-            conn.commit()
-
             await update.message.reply_text("✅ Order Placed", reply_markup=main_menu())
         else:
             await bot.send_message(ADMIN_ID, f"LIKE ERROR: {res}")
-            await update.message.reply_text("❌ Order Failed", reply_markup=main_menu())
+            await update.message.reply_text("❌ Failed", reply_markup=main_menu())
 
         user_steps[tg] = None
 
-    # ===== COMMENTS =====
+    # ===== COMMENT =====
     if text == "💬 Comments":
         user_steps[tg] = "c1"
         return await update.message.reply_text("Send link:", reply_markup=BACK)
@@ -195,14 +182,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if step == "c1":
         context.user_data["link"] = text
         user_steps[tg] = "c2"
-        return await update.message.reply_text("Send comments line by line:")
+        return await update.message.reply_text("Send comments:")
 
     if step == "c2":
         comments = [c for c in text.split("\n") if c.strip()]
         qty = len(comments)
-
-        if qty == 0:
-            return await update.message.reply_text("No comments")
 
         price = (qty / 1000) * get_setting("comment_price")
 
@@ -224,61 +208,22 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if bal < context.user_data["price"]:
             return await update.message.reply_text("Low balance")
 
-        try:
-            res = requests.post(COMMENT_API_URL, data={
-                "key": COMMENT_API_KEY,
-                "action": "add",
-                "service": COMMENT_SERVICE_ID,
-                "link": context.user_data["link"],
-                "comments": context.user_data["comments"]
-            }).json()
-        except Exception as e:
-            await bot.send_message(ADMIN_ID, f"COMMENT API DOWN: {e}")
-            return await update.message.reply_text("Service unavailable", reply_markup=main_menu())
+        res = requests.post(COMMENT_API_URL, data={
+            "key": COMMENT_API_KEY,
+            "action": "add",
+            "service": COMMENT_SERVICE_ID,
+            "link": context.user_data["link"],
+            "comments": context.user_data["comments"]
+        }).json()
 
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
-            cursor.execute("INSERT INTO orders VALUES (?,?,?,?,?)",
-                           (res["order"], tg, "comments", context.user_data["link"], context.user_data["qty"]))
-            conn.commit()
-
             await update.message.reply_text("✅ Order Placed", reply_markup=main_menu())
         else:
             await bot.send_message(ADMIN_ID, f"COMMENT ERROR: {res}")
-            await update.message.reply_text("❌ Order Failed", reply_markup=main_menu())
+            await update.message.reply_text("❌ Failed", reply_markup=main_menu())
 
         user_steps[tg] = None
-
-    if text == "📦 Orders":
-        cursor.execute("SELECT * FROM orders WHERE telegram_id=?", (tg,))
-        rows = cursor.fetchall()
-
-        if not rows:
-            return await update.message.reply_text("No orders")
-
-        msg = "📦 Last Orders:\n"
-        for r in rows[-5:]:
-            msg += f"{r[2]} | {r[4]} | {r[0]}\n"
-
-        await update.message.reply_text(msg)
-
-# ===== ADMIN =====
-async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat_id != ADMIN_ID:
-        return
-
-    if len(context.args) < 2:
-        return await update.message.reply_text("Usage: /setprice like 30")
-
-    service = context.args[0]
-    price = context.args[1]
-
-    key = "like_price" if service == "like" else "comment_price"
-
-    cursor.execute("UPDATE settings SET value=? WHERE key=?", (price, key))
-    conn.commit()
-
-    await update.message.reply_text(f"{service} price updated to ₹{price}")
 
 # ===== WEBHOOK =====
 app_web = Flask(__name__)
@@ -286,41 +231,33 @@ app_web = Flask(__name__)
 @app_web.route("/webhook", methods=["POST"])
 def webhook():
     body = request.data
-    signature = request.headers.get("X-Razorpay-Signature")
+    sig = request.headers.get("X-Razorpay-Signature")
 
-    generated = hmac.new(
-        WEBHOOK_SECRET.encode(),
-        body,
-        hashlib.sha256
-    ).hexdigest()
+    gen = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
 
-    if not hmac.compare_digest(generated, signature):
+    if not hmac.compare_digest(gen, sig):
         return {"status": "invalid"}, 400
 
     data = request.json
 
-    try:
-        if data.get("event") == "payment_link.paid":
-            entity = data["payload"]["payment_link"]["entity"]
+    if data.get("event") == "payment_link.paid":
+        entity = data["payload"]["payment_link"]["entity"]
 
-            tg = int(entity["notes"]["telegram_id"])
-            amt = entity["amount_paid"] / 100
-            pid = entity["id"]
+        tg = int(entity["notes"]["telegram_id"])
+        amt = entity["amount_paid"] / 100
+        pid = entity["id"]
 
-            cursor.execute("SELECT * FROM payments WHERE payment_id=?", (pid,))
-            if cursor.fetchone():
-                return {"status": "duplicate"}
+        cursor.execute("SELECT * FROM payments WHERE payment_id=?", (pid,))
+        if cursor.fetchone():
+            return {"status": "duplicate"}
 
-            update_balance(tg, amt)
+        update_balance(tg, amt)
 
-            cursor.execute("INSERT INTO payments VALUES (?,?,?)", (pid, tg, amt))
-            conn.commit()
+        cursor.execute("INSERT INTO payments VALUES (?,?,?)", (pid, tg, amt))
+        conn.commit()
 
-            asyncio.run(bot.send_message(tg, f"✅ ₹{amt} added"))
-            asyncio.run(bot.send_message(ADMIN_ID, f"💰 Payment ₹{amt} from {tg}"))
-
-    except Exception as e:
-        asyncio.run(bot.send_message(ADMIN_ID, f"Webhook Error: {e}"))
+        asyncio.run(bot.send_message(tg, f"✅ ₹{amt} added"))
+        asyncio.run(bot.send_message(ADMIN_ID, f"💰 Payment ₹{amt} from {tg}"))
 
     return {"status": "ok"}
 
@@ -328,7 +265,6 @@ def webhook():
 def run_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("setprice", setprice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.run_polling()
 
