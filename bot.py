@@ -74,7 +74,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 Likes (₹25/1000)", "💬 Comments (₹17 each)"],
+            ["👍 Likes (₹25/1000)", "💬 Comments (₹250/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
@@ -88,7 +88,7 @@ def confirm_kb():
 
 BACK_KB = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
 
-# ===== USER FUNCTIONS =====
+# ===== USER =====
 def get_user(tg_id):
     cursor.execute("SELECT id, balance FROM users WHERE telegram_id=?", (tg_id,))
     user = cursor.fetchone()
@@ -157,7 +157,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "🛒 Services":
         await update.message.reply_text("Choose Service:", reply_markup=services_menu())
 
-    # ===== LIKES FLOW =====
+    # ===== LIKES =====
     elif "👍 Likes" in text:
         user_steps[tg_id] = "like_link"
         await update.message.reply_text("🔗 Send Post Link:", reply_markup=BACK_KB)
@@ -184,7 +184,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         await update.message.reply_text(
-            f"📊 Order Summary\n👍 Likes: {qty}\n💰 Price: ₹{price}\n\nConfirm?",
+            f"📊 Order Summary\n👍 Likes: {qty}\n💰 Price: ₹{round(price,2)}\n\nConfirm?",
             reply_markup=confirm_kb()
         )
 
@@ -223,7 +223,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_steps[tg_id] = None
 
-    # ===== COMMENTS FLOW =====
+    # ===== COMMENTS (AUTO COUNT) =====
     elif "💬 Comments" in text:
         user_steps[tg_id] = "c_link"
         await update.message.reply_text("🔗 Send Post Link:", reply_markup=BACK_KB)
@@ -231,26 +231,26 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif step == "c_link":
         context.user_data["link"] = text
         user_steps[tg_id] = "c_text"
-        await update.message.reply_text("✍️ Send Comment Text:")
+        await update.message.reply_text("✍️ Send ALL Comments (each in new line):")
 
     elif step == "c_text":
-        context.user_data["comment"] = text
-        user_steps[tg_id] = "c_qty"
-        await update.message.reply_text("🔢 Enter Number of Comments:")
+        comments_text = text.strip()
 
-    elif step == "c_qty":
-        if not text.isdigit():
-            await update.message.reply_text("❌ Invalid number")
+        comments_list = [c for c in comments_text.split("\n") if c.strip() != ""]
+        qty = len(comments_list)
+
+        if qty == 0:
+            await update.message.reply_text("❌ No comments found")
             return
 
-        qty = int(text)
-        price = qty * 17
+        price = (qty / 1000) * 250
 
+        context.user_data["comments"] = "\n".join(comments_list)
         context.user_data["qty"] = qty
-        context.user_data["price"] = price
+        context.user_data["price"] = round(price, 2)
 
         await update.message.reply_text(
-            f"📊 Order Summary\n💬 Comments: {qty}\n💰 Price: ₹{price}\n\nConfirm?",
+            f"📊 Order Summary\n💬 Comments: {qty}\n💰 Price: ₹{round(price,2)}\n\nConfirm?",
             reply_markup=confirm_kb()
         )
 
@@ -276,15 +276,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "action": "add",
             "service": COMMENT_SERVICE_ID,
             "link": context.user_data["link"],
-            "comments": context.user_data["comment"],
-            "quantity": qty
+            "comments": context.user_data["comments"]
         }).json()
 
         if "order" in res:
             cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
                            (res["order"], tg_id, "comments", context.user_data["link"], qty))
             conn.commit()
-            await update.message.reply_text(f"✅ Order Placed\n🆔 {res['order']}")
+
+            await update.message.reply_text(
+                f"✅ Order Placed\n🆔 {res['order']}\n💬 {qty} comments sent"
+            )
         else:
             await update.message.reply_text("❌ Failed")
 
