@@ -11,6 +11,7 @@ import threading
 import asyncio
 
 # ===== CONFIG =====
+# ===== CONFIG =====
 BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 ADMIN_ID = 8451049817
 
@@ -113,6 +114,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Enter amount:")
 
     elif user_steps.get(tg_id) == "amount":
+        if not text.isdigit():
+            await update.message.reply_text("❌ Enter number")
+            return
+
         amount = int(text)
 
         payment_link = client.payment_link.create({
@@ -137,7 +142,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== LIKES =====
     elif text == "👍 Likes":
         user_steps[tg_id] = "like_link"
-        await update.message.reply_text("👍 Likes\n₹25/1000\nMin 100\nSend Link:")
+        await update.message.reply_text(
+            "🔥 Youtube Likes [No Drop] [Instant]\n💰 Price: ₹25 / 1000\n📉 Min: 100\n\nSend Link:"
+        )
 
     elif user_steps.get(tg_id) == "like_link":
         context.user_data["link"] = text
@@ -148,7 +155,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         qty = int(text)
 
         if qty < 100:
-            await update.message.reply_text("❌ Min 100")
+            await update.message.reply_text("❌ Minimum 100")
             return
 
         price = (qty / 1000) * 25
@@ -181,7 +188,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== COMMENTS =====
     elif text == "💬 Comments":
         user_steps[tg_id] = "c_link"
-        await update.message.reply_text("💬 Comments\n₹170/1000\nMin 10\nSend Link:")
+        await update.message.reply_text(
+            "💬 Youtube Custom Comments (Instant)\n💰 Price: ₹170 / 1000 comments\n📉 Min: 10\n\nSend Link:"
+        )
 
     elif user_steps.get(tg_id) == "c_link":
         context.user_data["link"] = text
@@ -197,7 +206,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         qty = int(text)
 
         if qty < 10:
-            await update.message.reply_text("❌ Min 10")
+            await update.message.reply_text("❌ Minimum 10")
             return
 
         price = (qty / 1000) * 170
@@ -243,11 +252,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(msg)
 
-    # ===== ADMIN =====
-    elif text == "/admin" and tg_id == ADMIN_ID:
-        await update.message.reply_text("Admin Panel")
-
-# ===== WEBHOOK =====
+# ===== WEBHOOK FIXED =====
 app_web = Flask(__name__)
 
 @app_web.route("/webhook", methods=["POST"])
@@ -262,7 +267,8 @@ def webhook():
 
     data = request.json
 
-    if data.get("event") == "payment.captured":
+    # 🔥 FIXED EVENT
+    if data.get("event") == "payment_link.paid":
         payment = data["payload"]["payment"]["entity"]
         payment_id = payment["id"]
 
