@@ -4,12 +4,14 @@ import sqlite3
 import hmac
 import hashlib
 import os
-from flask import Flask, request
-from telegram import Update, ReplyKeyboardMarkup, Bot
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import threading
 import asyncio
+import threading
+from flask import Flask, request
 
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+
+# ===== CONFIG =====
 BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 ADMIN_ID = 8451049817
 
@@ -29,49 +31,43 @@ RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
-bot = Bot(token=BOT_TOKEN)
 
 # ===== DB =====
-conn = sqlite3.connect("users.db", check_same_thread=False)
+conn = sqlite3.connect("bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
-cursor.execute("""CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER UNIQUE,
-    balance REAL DEFAULT 0
+cursor.execute("""CREATE TABLE IF NOT EXISTS users(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+telegram_id INTEGER UNIQUE,
+balance REAL DEFAULT 0,
+banned INTEGER DEFAULT 0
 )""")
 
-cursor.execute("""CREATE TABLE IF NOT EXISTS payments (
-    payment_id TEXT PRIMARY KEY,
-    telegram_id INTEGER,
-    amount REAL
+cursor.execute("""CREATE TABLE IF NOT EXISTS wallet_history(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+tg_id INTEGER,
+amount REAL,
+type TEXT
 )""")
 
-cursor.execute("""CREATE TABLE IF NOT EXISTS orders (
-    order_id TEXT,
-    telegram_id INTEGER,
-    service TEXT,
-    link TEXT,
-    quantity INTEGER
+cursor.execute("""CREATE TABLE IF NOT EXISTS orders(
+order_id TEXT,
+tg_id INTEGER,
+service TEXT,
+status TEXT
 )""")
 
 conn.commit()
 
-# ===== STATES =====
-user_steps = {}
+user_state = {}
+order_cache = {}
 
-def main_menu():
-    return ReplyKeyboardMarkup(
-        [
-            ["👤 Account", "💰 Recharge"],
-            ["📦 Orders", "🛒 Services"]
-        ],
-        resize_keyboard=True
-    )
+# ===== HELPERS =====
+def is_banned(tg_id):
+    cursor.execute("SELECT banned FROM users WHERE telegram_id=?", (tg_id,))
+    r = cursor.fetchone()
+    return r and r[0] == 1
 
-BACK_KB = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
-
-# ===== USER =====
 def get_user(tg_id):
     cursor.execute("SELECT id, balance FROM users WHERE telegram_id=?", (tg_id,))
     user = cursor.fetchone()
@@ -83,10 +79,32 @@ def get_user(tg_id):
 
     return user
 
+def update_balance(tg_id, amount, ttype="add"):
+    if ttype == "add":
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE telegram_id=?", (amount, tg_id))
+    else:
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE telegram_id=?", (amount, tg_id))
 
-def update_balance(tg_id, amount):
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE telegram_id=?", (amount, tg_id))
+    cursor.execute("INSERT INTO wallet_history (tg_id, amount, type) VALUES (?, ?, ?)",
+                   (tg_id, amount, ttype))
     conn.commit()
+
+# ===== INLINE MENUS =====
+def main_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👤 Account", callback_data="acc"),
+         InlineKeyboardButton("💰 Wallet", callback_data="wallet")],
+
+        [InlineKeyboardButton("🛒 Services", callback_data="services"),
+         InlineKeyboardButton("📦 Orders", callback_data="orders")]
+    ])
+
+def service_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👍 Likes", callback_data="likes")],
+        [InlineKeyboardButton("💬 Comments", callback_data="comments")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+    ])
 
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,84 +112,91 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, balance = get_user(tg_id)
 
     await update.message.reply_text(
-        f"✨ Welcome SMM Bot 🚀\n🆔 ID: {user_id}\n💰 Balance: ₹{balance}",
+        f"🚀 Welcome SMM Bot\nID: {user_id}\nBalance: ₹{balance}",
         reply_markup=main_menu()
     )
 
-# ===== HANDLE =====
+# ===== BUTTON HANDLER =====
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    tg_id = query.message.chat_id
+    data = query.data
+
+    if is_banned(tg_id):
+        await query.edit_message_text("🚫 You are banned")
+        return
+
+    user_id, balance = get_user(tg_id)
+
+    # ===== ACCOUNT =====
+    if data == "acc":
+        await query.edit_message_text(f"ID: {user_id}\nBalance: ₹{balance}", reply_markup=main_menu())
+
+    # ===== WALLET =====
+    elif data == "wallet":
+        cursor.execute("SELECT amount, type FROM wallet_history WHERE tg_id=?", (tg_id,))
+        rows = cursor.fetchall()
+
+        msg = "💰 Wallet History:\n"
+        for r in rows[-10:]:
+            msg += f"{r[1]} ₹{r[0]}\n"
+
+        await query.edit_message_text(msg, reply_markup=main_menu())
+
+    # ===== SERVICES =====
+    elif data == "services":
+        await query.edit_message_text("Select Service:", reply_markup=service_menu())
+
+    # ===== BACK =====
+    elif data == "back":
+        await query.edit_message_text("Main Menu", reply_markup=main_menu())
+
+    # ===== ORDERS =====
+    elif data == "orders":
+        cursor.execute("SELECT * FROM orders WHERE tg_id=?", (tg_id,))
+        rows = cursor.fetchall()
+
+        msg = "📦 Orders:\n"
+        for r in rows[-10:]:
+            msg += f"{r[0]} | {r[2]} | {r[3]}\n"
+
+        await query.edit_message_text(msg, reply_markup=main_menu())
+
+    # ===== LIKES =====
+    elif data == "likes":
+        user_state[tg_id] = "like_link"
+        await query.edit_message_text("Send Video Link:")
+
+    # ===== COMMENTS =====
+    elif data == "comments":
+        user_state[tg_id] = "c_link"
+        await query.edit_message_text("Send Video Link:")
+
+# ===== MESSAGE FLOW =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = update.message.chat_id
     text = update.message.text
 
     user_id, balance = get_user(tg_id)
-    step = user_steps.get(tg_id)
+    step = user_state.get(tg_id)
 
-    # ===== BACK BUTTON =====
-    if text == "⬅️ Back":
-        user_steps[tg_id] = None
-        await update.message.reply_text("🔙 Main Menu", reply_markup=main_menu())
-        return
-
-    # ===== ACCOUNT =====
-    if text == "👤 Account":
-        await update.message.reply_text(f"🆔 ID: {user_id}\n💰 Balance: ₹{balance}")
-
-    # ===== RECHARGE =====
-    elif text == "💰 Recharge":
-        user_steps[tg_id] = "amount"
-        await update.message.reply_text("Enter amount:", reply_markup=BACK_KB)
-
-    elif step == "amount":
-        if not text.isdigit():
-            await update.message.reply_text("❌ Enter number")
-            return
-
-        amount = int(text)
-
-        payment = client.payment_link.create({
-            "amount": amount * 100,
-            "currency": "INR",
-            "notes": {"telegram_id": str(tg_id)}
-        })
-
-        await update.message.reply_text(payment['short_url'])
-        user_steps[tg_id] = None
-
-    # ===== SERVICES =====
-    elif text == "🛒 Services":
-        await update.message.reply_text(
-            "Select:",
-            reply_markup=ReplyKeyboardMarkup(
-                [["👍 Likes", "💬 Comments"]],
-                resize_keyboard=True
-            )
-        )
-
-    # ===== LIKES =====
-    elif text == "👍 Likes":
-        user_steps[tg_id] = "like_link"
-        await update.message.reply_text("Send Link:", reply_markup=BACK_KB)
-
-    elif step == "like_link":
+    # ===== LIKE FLOW =====
+    if step == "like_link":
         context.user_data["link"] = text
-        user_steps[tg_id] = "like_qty"
+        user_state[tg_id] = "like_qty"
         await update.message.reply_text("Enter Quantity:")
 
     elif step == "like_qty":
         qty = int(text)
-
-        if qty < 100:
-            await update.message.reply_text("❌ Min 100")
-            return
-
         price = (qty / 1000) * 25
 
         if balance < price:
             await update.message.reply_text("❌ Low balance")
             return
 
-        cursor.execute("UPDATE users SET balance=balance-? WHERE telegram_id=?", (price, tg_id))
-        conn.commit()
+        update_balance(tg_id, price, "sub")
 
         res = requests.post(LIKE_API_URL, data={
             "key": LIKE_API_KEY,
@@ -181,115 +206,95 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "quantity": qty
         }).json()
 
-        if "order" in res:
-            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
-                           (res["order"], tg_id, "likes", context.user_data["link"], qty))
-            conn.commit()
-            await update.message.reply_text(f"✅ Order: {res['order']}")
-        else:
-            await update.message.reply_text("❌ Failed")
+        order_id = res.get("order", "NA")
 
-        user_steps[tg_id] = None
+        cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?)",
+                       (order_id, tg_id, "likes", "pending"))
+        conn.commit()
 
-    # ===== COMMENTS (UPDATED - NO QUANTITY) =====
-    elif text == "💬 Comments":
-        user_steps[tg_id] = "c_link"
-        await update.message.reply_text("Send Link:", reply_markup=BACK_KB)
+        await update.message.reply_text(f"✅ Order: {order_id}")
+        user_state[tg_id] = None
 
+    # ===== COMMENTS SMART PRICING =====
     elif step == "c_link":
         context.user_data["link"] = text
-        user_steps[tg_id] = "c_text"
+        user_state[tg_id] = "c_text"
         await update.message.reply_text("Send Comment Text:")
 
     elif step == "c_text":
-        comments = text
+        context.user_data["comment"] = text
+        user_state[tg_id] = "c_qty"
+        await update.message.reply_text("Enter Quantity:")
 
-        price = 17  # fixed or change logic
+    elif step == "c_qty":
+        qty = int(text)
+
+        price_per_1 = 170 / 1000
+        price = qty * price_per_1
 
         if balance < price:
             await update.message.reply_text("❌ Low balance")
             return
 
-        cursor.execute("UPDATE users SET balance=balance-? WHERE telegram_id=?", (price, tg_id))
-        conn.commit()
+        update_balance(tg_id, price, "sub")
 
         res = requests.post(COMMENT_API_URL, data={
             "key": COMMENT_API_KEY,
             "action": "add",
             "service": COMMENT_SERVICE_ID,
             "link": context.user_data["link"],
-            "comments": comments
+            "comments": context.user_data["comment"],
+            "quantity": qty
         }).json()
 
-        if "order" in res:
-            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
-                           (res["order"], tg_id, "comments", context.user_data["link"], 0))
-            conn.commit()
-            await update.message.reply_text(f"✅ Order: {res['order']}")
-        else:
-            await update.message.reply_text("❌ Failed")
+        order_id = res.get("order", "NA")
 
-        user_steps[tg_id] = None
-
-    # ===== ORDERS =====
-    elif text == "📦 Orders":
-        cursor.execute("SELECT * FROM orders WHERE telegram_id=?", (tg_id,))
-        rows = cursor.fetchall()
-
-        if not rows:
-            await update.message.reply_text("No orders")
-            return
-
-        msg = "📦 Last Orders:\n"
-        for r in rows[-5:]:
-            msg += f"{r[2]} | {r[4]} | {r[0]}\n"
-
-        await update.message.reply_text(msg)
-
-# ===== WEBHOOK =====
-app_web = Flask(__name__)
-
-@app_web.route("/webhook", methods=["POST"])
-def webhook():
-    signature = request.headers.get("X-Razorpay-Signature")
-    body = request.data
-
-    expected = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(expected, signature):
-        return {"status": "invalid"}, 400
-
-    data = request.json
-
-    if data.get("event") == "payment_link.paid":
-        entity = data["payload"]["payment_link"]["entity"]
-
-        tg_id = int(entity["notes"]["telegram_id"])
-        amount = entity["amount_paid"] / 100
-        payment_id = entity["id"]
-
-        cursor.execute("SELECT * FROM payments WHERE payment_id=?", (payment_id,))
-        if cursor.fetchone():
-            return {"status": "duplicate"}
-
-        update_balance(tg_id, amount)
-
-        cursor.execute("INSERT INTO payments VALUES (?, ?, ?)", (payment_id, tg_id, amount))
+        cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?)",
+                       (order_id, tg_id, "comments", "pending"))
         conn.commit()
 
-        asyncio.run(bot.send_message(chat_id=tg_id, text=f"✅ ₹{amount} added"))
+        await update.message.reply_text(f"✅ Order: {order_id}")
+        user_state[tg_id] = None
 
+# ===== ADMIN PANEL =====
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_id = update.message.chat_id
+
+    if tg_id != ADMIN_ID:
+        return
+
+    cmd = context.args
+
+    if len(cmd) < 2:
+        await update.message.reply_text("Usage: /addbalance id amount")
+        return
+
+    target = int(cmd[0])
+    amount = float(cmd[1])
+
+    update_balance(target, amount, "add")
+    await update.message.reply_text("✅ Balance Added")
+
+# ===== FLASK WEBHOOK =====
+app = Flask(__name__)
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
     return {"status": "ok"}
 
 # ===== RUN =====
 def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("addbalance", admin))
+    app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
     app.run_polling()
 
 def start_web():
-    app_web.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=5000)
 
 if __name__ == "__main__":
     threading.Thread(target=start_web).start()
