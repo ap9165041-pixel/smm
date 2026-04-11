@@ -23,13 +23,14 @@ ADMIN_ID = 8451049817  # 👈 apna telegram id
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
 
-# ===== DATABASE (PERSISTENT) =====
-conn = sqlite3.connect("/data/users.db", check_same_thread=False)
+# ===== DATABASE =====
+conn = sqlite3.connect("users.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id INTEGER UNIQUE,
     balance REAL DEFAULT 0
 )
 """)
@@ -37,167 +38,112 @@ CREATE TABLE IF NOT EXISTS users (
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS payments (
     payment_id TEXT PRIMARY KEY,
-    user_id INTEGER,
+    telegram_id INTEGER,
     amount REAL
 )
 """)
 conn.commit()
 
-# ===== FUNCTIONS =====
-def get_user(uid):
-    cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
-    row = cursor.fetchone()
+# ===== USER SYSTEM =====
+def get_or_create_user(tg_id):
+    cursor.execute("SELECT id, balance FROM users WHERE telegram_id=?", (tg_id,))
+    user = cursor.fetchone()
 
-    if row:
-        return row[0]
+    if user:
+        return user
     else:
-        cursor.execute("INSERT INTO users (user_id, balance) VALUES (?, ?)", (uid, 0))
+        cursor.execute("INSERT INTO users (telegram_id) VALUES (?)", (tg_id,))
         conn.commit()
-        return 0
+        return get_or_create_user(tg_id)
 
-def update_balance(uid, amount):
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
+def update_balance(tg_id, amount):
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE telegram_id=?", (amount, tg_id))
     conn.commit()
 
 # ===== TELEGRAM =====
 user_steps = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.message.chat_id
-    get_user(uid)
+    tg_id = update.message.chat_id
+    user_id, balance = get_or_create_user(tg_id)
 
     keyboard = [
         ["💰 Balance", "🔄 Recharge"],
-        ["👍 YouTube Likes"],
+        ["🆔 My ID"],
         ["🛠 Admin Panel"]
     ]
 
     await update.message.reply_text(
-        "🚀 Welcome to SMM Bot",
+        f"🚀 Welcome\nYour ID: {user_id}",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.message.chat_id
+    tg_id = update.message.chat_id
     text = update.message.text
 
-    balance = get_user(uid)
+    user_id, balance = get_or_create_user(tg_id)
 
     # ===== USER =====
     if text == "💰 Balance":
         await update.message.reply_text(f"💰 Balance: ₹{balance}")
 
+    elif text == "🆔 My ID":
+        await update.message.reply_text(f"🆔 Your ID: {user_id}")
+
     elif text == "🔄 Recharge":
-        user_steps[uid] = "amount"
-        await update.message.reply_text("💰 Enter amount:")
+        user_steps[tg_id] = "amount"
+        await update.message.reply_text("Enter amount:")
 
-    elif user_steps.get(uid) == "amount":
-        if not text.isdigit():
-            await update.message.reply_text("❌ Enter valid number")
-            return
-
+    elif user_steps.get(tg_id) == "amount":
         amount = int(text)
 
         payment_link = client.payment_link.create({
             "amount": amount * 100,
             "currency": "INR",
-            "description": "Wallet Recharge",
-            "notes": {"user_id": str(uid)}
+            "notes": {"telegram_id": str(tg_id)}
         })
 
-        await update.message.reply_text(f"💳 Pay here:\n{payment_link['short_url']}")
-        user_steps[uid] = None
+        await update.message.reply_text(payment_link["short_url"])
+        user_steps[tg_id] = None
 
-    elif text == "👍 YouTube Likes":
-        user_steps[uid] = "yt_link"
-        await update.message.reply_text("🔗 Send YouTube link")
-
-    elif user_steps.get(uid) == "yt_link":
-        context.user_data["link"] = text
-        user_steps[uid] = "yt_qty"
-        await update.message.reply_text("📊 Enter quantity (1000 = ₹20)")
-
-    elif user_steps.get(uid) == "yt_qty":
-        if not text.isdigit():
-            await update.message.reply_text("❌ Invalid quantity")
-            return
-
-        qty = int(text)
-        price = (qty / 1000) * 20
-
-        if balance < price:
-            await update.message.reply_text(f"❌ Need ₹{price}")
-            return
-
-        cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id=?", (price, uid))
-        conn.commit()
-
-        data = {
-            "key": API_KEY,
-            "action": "add",
-            "service": "3062",
-            "link": context.user_data["link"],
-            "quantity": qty
-        }
-
-        res = requests.post(API_URL, data=data).json()
-
-        if "order" in res:
-            await update.message.reply_text(f"✅ Order Done\n🆔 {res['order']}")
-        else:
-            await update.message.reply_text("❌ Order failed")
-
-        user_steps[uid] = None
-
-    # ===== ADMIN PANEL =====
+    # ===== ADMIN =====
     elif text == "🛠 Admin Panel":
-        if uid != ADMIN_ID:
+        if tg_id != ADMIN_ID:
             await update.message.reply_text("❌ Access Denied")
             return
 
-        keys = [["👥 Total Users", "💳 Check User"], ["➕ Add Balance"]]
-        await update.message.reply_text("🛠 Admin Panel",
-            reply_markup=ReplyKeyboardMarkup(keys, resize_keyboard=True))
+        await update.message.reply_text(
+            "Admin Panel",
+            reply_markup=ReplyKeyboardMarkup(
+                [["👥 Total Users", "➕ Add Balance"]],
+                resize_keyboard=True
+            )
+        )
 
-    elif text == "👥 Total Users" and uid == ADMIN_ID:
+    elif text == "👥 Total Users" and tg_id == ADMIN_ID:
         cursor.execute("SELECT COUNT(*) FROM users")
         total = cursor.fetchone()[0]
-        await update.message.reply_text(f"👥 Total Users: {total}")
+        await update.message.reply_text(f"Users: {total}")
 
-    elif text == "💳 Check User" and uid == ADMIN_ID:
-        user_steps[uid] = "check_user"
+    elif text == "➕ Add Balance" and tg_id == ADMIN_ID:
+        user_steps[tg_id] = "admin_user"
         await update.message.reply_text("Enter User ID:")
 
-    elif user_steps.get(uid) == "check_user" and uid == ADMIN_ID:
-        target = int(text)
-        cursor.execute("SELECT balance FROM users WHERE user_id=?", (target,))
-        row = cursor.fetchone()
-
-        if row:
-            await update.message.reply_text(f"💰 Balance: ₹{row[0]}")
-        else:
-            await update.message.reply_text("❌ User not found")
-
-        user_steps[uid] = None
-
-    elif text == "➕ Add Balance" and uid == ADMIN_ID:
-        user_steps[uid] = "add_user"
-        await update.message.reply_text("Enter User ID:")
-
-    elif user_steps.get(uid) == "add_user" and uid == ADMIN_ID:
+    elif user_steps.get(tg_id) == "admin_user":
         context.user_data["target"] = int(text)
-        user_steps[uid] = "add_amount"
+        user_steps[tg_id] = "admin_amount"
         await update.message.reply_text("Enter amount:")
 
-    elif user_steps.get(uid) == "add_amount" and uid == ADMIN_ID:
+    elif user_steps.get(tg_id) == "admin_amount":
         amount = float(text)
-        target = context.user_data["target"]
+        uid = context.user_data["target"]
 
-        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, target))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, uid))
         conn.commit()
 
-        await update.message.reply_text(f"✅ ₹{amount} added to {target}")
-        user_steps[uid] = None
+        await update.message.reply_text("Balance Added")
+        user_steps[tg_id] = None
 
 # ===== WEBHOOK =====
 app_web = Flask(__name__)
@@ -210,7 +156,7 @@ def webhook():
     expected = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(expected, signature):
-        return {"status": "invalid signature"}, 400
+        return {"status": "invalid"}, 400
 
     data = request.json
 
@@ -222,26 +168,23 @@ def webhook():
         if cursor.fetchone():
             return {"status": "duplicate"}
 
-        uid = int(payment["notes"]["user_id"])
+        tg_id = int(payment["notes"]["telegram_id"])
         amount = payment["amount"] / 100
 
-        update_balance(uid, amount)
+        update_balance(tg_id, amount)
 
-        cursor.execute("INSERT INTO payments VALUES (?, ?, ?)", (payment_id, uid, amount))
+        cursor.execute("INSERT INTO payments VALUES (?, ?, ?)", (payment_id, tg_id, amount))
         conn.commit()
 
-        asyncio.run(bot.send_message(chat_id=uid, text=f"✅ ₹{amount} added"))
+        asyncio.run(bot.send_message(chat_id=tg_id, text=f"₹{amount} added"))
 
     return {"status": "ok"}
 
 # ===== RUN =====
 def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
-    print("Bot Running...")
     app.run_polling()
 
 def start_web():
