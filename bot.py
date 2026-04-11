@@ -208,7 +208,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== ADMIN =====
     elif text == "/admin":
-        if tg_id != ADMIN_ID:
+        if tg_id != 1716557667:
             return
 
         await update.message.reply_text(
