@@ -85,8 +85,6 @@ def menu():
         ["📦 Orders", "🛒 Services"]
     ], resize_keyboard=True)
 
-BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
-
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = update.message.chat_id
@@ -98,7 +96,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bal = cursor.fetchone()[0]
 
     await update.message.reply_text(
-        f"✨ SMM BOT ACTIVE\n💰 Balance: ₹{bal}",
+        f"🔥 SMM BOT ACTIVE\n💰 Balance: ₹{bal}",
         reply_markup=menu()
     )
 
@@ -123,12 +121,13 @@ async def cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q.data == "likes":
         user_steps[tg_id] = "like_link"
-        await q.message.reply_text("Send Post Link:")
+        await q.message.reply_text("Send Link:")
 
     elif q.data == "comments":
         user_steps[tg_id] = "c_link"
         await q.message.reply_text(
-            "💬 Send comments (one per line)\nExample:\nNice video\n🔥🔥🔥\nGood job"
+            "💬 Send comments (one per line)\n\n"
+            "Example:\nNice video 🔥\nAwesome bro 😎\nGood gameplay 💯"
         )
 
 # ================= MAIN HANDLER =================
@@ -198,15 +197,18 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_steps[tg_id] = None
 
-    # ================= COMMENTS (FIXED FULL SYSTEM) =================
+    # ================= COMMENTS FLOW (FINAL FIXED) =================
     elif step == "c_link":
         context.user_data["link"] = text
         user_steps[tg_id] = "c_text"
+
         await update.message.reply_text(
-            "💬 Send comments (one per line)"
+            "💬 अब अपने comments भेजो (one per line)\n\n"
+            "Example:\nNice video 🔥\nAwesome bro 😎\nGood gameplay 💯"
         )
 
     elif step == "c_text":
+
         comments = [c.strip() for c in text.split("\n") if c.strip()]
         qty = len(comments)
 
@@ -227,10 +229,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💬 Comments: {qty}\n"
             f"💰 Rate: ₹250 / 1000\n"
             f"💳 Total: ₹{price}\n\n"
-            f"👉 Type YES to confirm / NO to cancel"
+            f"👉 Type YES to confirm\n"
+            f"👉 Type NO to cancel"
         )
 
     elif step == "c_confirm":
+
         if text.lower() == "no":
             user_steps[tg_id] = None
             await update.message.reply_text("❌ Cancelled")
@@ -248,8 +252,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Low Balance")
             return
 
-        cursor.execute("UPDATE users SET balance=balance-? WHERE telegram_id=?",
-                       (price, tg_id))
+        cursor.execute(
+            "UPDATE users SET balance=balance-? WHERE telegram_id=?",
+            (price, tg_id)
+        )
         conn.commit()
 
         res = requests.post(COMMENT_API_URL, data={
@@ -260,13 +266,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "comments": "\n".join(comments)
         }).json()
 
-        cursor.execute("INSERT INTO orders VALUES (?,?,?,?,?)",
-                       (res.get("order", "NA"), tg_id, "comments",
-                        context.user_data["link"], qty))
+        order_id = res.get("order", "NA")
+
+        cursor.execute(
+            "INSERT INTO orders VALUES (?,?,?,?,?)",
+            (order_id, tg_id, "comments",
+             context.user_data["link"], qty)
+        )
         conn.commit()
 
         await update.message.reply_text(
-            f"✅ ORDER PLACED\n💬 Comments: {qty}\n💰 ₹{price}\n📦 ID: {res.get('order')}"
+            f"✅ ORDER PLACED\n\n"
+            f"💬 Comments: {qty}\n"
+            f"💰 Paid: ₹{price}\n"
+            f"📦 ID: {order_id}"
         )
 
         user_steps[tg_id] = None
