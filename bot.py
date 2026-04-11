@@ -12,7 +12,7 @@ import asyncio
 
 # ===== CONFIG =====
 BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
-ADMIN_ID = 8451049817
+ADMIN_ID = 1716557667
 
 # ===== LIKE API (OLD) =====
 LIKE_API_KEY = "7d01eb30166546130c171b26eecee191"
