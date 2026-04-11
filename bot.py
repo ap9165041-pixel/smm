@@ -1,7 +1,11 @@
 import requests
 import razorpay
+import sqlite3
+import hmac
+import hashlib
+import os
 from flask import Flask, request
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import threading
 import asyncio
@@ -13,147 +17,183 @@ API_URL = "https://tntsmm.in/api/v2"
 
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
+WEBHOOK_SECRET = "YOUR_WEBHOOK_SECRET"
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
+bot = Bot(token=BOT_TOKEN)
 
-users = {}
+# ===== DATABASE =====
+conn = sqlite3.connect("users.db", check_same_thread=False)
+cursor = conn.cursor()
 
-# ===== START COMMAND =====
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    balance REAL DEFAULT 0
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS payments (
+    payment_id TEXT PRIMARY KEY,
+    user_id INTEGER,
+    amount REAL
+)
+""")
+conn.commit()
+
+# ===== FUNCTIONS =====
+def get_user(uid):
+    cursor.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+    user = cursor.fetchone()
+
+    if not user:
+        cursor.execute("INSERT INTO users (user_id, balance) VALUES (?, ?)", (uid, 0))
+        conn.commit()
+        return (uid, 0)
+
+    return user
+
+def update_balance(uid, amount):
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
+    conn.commit()
+
+# ===== TELEGRAM =====
+user_steps = {}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
+    get_user(uid)
 
-    if uid not in users:
-        users[uid] = {"balance": 0}
-
-    keyboard = [
-        ["💰 Balance", "🔄 Recharge"],
-        ["👍 YouTube Likes"]
-    ]
+    keyboard = [["💰 Balance", "🔄 Recharge"], ["👍 YouTube Likes"]]
 
     await update.message.reply_text(
-        "🚀 Welcome to SMM Bot\n\nSelect option:",
+        "🚀 Welcome to SMM Bot",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
 
-# ===== HANDLE BUTTONS =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
     text = update.message.text
 
-    # ensure user exists
-    if uid not in users:
-        users[uid] = {"balance": 0}
+    user = get_user(uid)
+    balance = user[1]
 
-    # 💰 BALANCE
     if text == "💰 Balance":
-        await update.message.reply_text(f"💰 Balance: ₹{users[uid]['balance']}")
+        await update.message.reply_text(f"💰 Balance: ₹{balance}")
 
-    # 🔄 RECHARGE START
     elif text == "🔄 Recharge":
-        users[uid]["step"] = "amount"
-        await update.message.reply_text("💰 Enter amount to recharge:")
+        user_steps[uid] = "amount"
+        await update.message.reply_text("💰 Enter amount:")
 
-    # 💵 AMOUNT INPUT
-    # 💵 AMOUNT INPUT
-    elif users[uid].get("step") == "amount":
-
-        # validation
-        if not text.strip().isdigit():
-            await update.message.reply_text("❌ Enter numbers only")
+    elif user_steps.get(uid) == "amount":
+        if not text.isdigit():
+            await update.message.reply_text("❌ Enter valid number")
             return
 
-        amount = int(text.strip())
+        amount = int(text)
 
-        if amount < 10:
-            await update.message.reply_text("❌ Minimum ₹10 recharge")
-            return
+        payment_link = client.payment_link.create({
+            "amount": amount * 100,
+            "currency": "INR",
+            "description": "Wallet Recharge",
+            "notes": {"user_id": str(uid)}
+        })
 
-        try:
-            payment_link = client.payment_link.create({
-                "amount": amount * 100,
-                "currency": "INR",
-                "description": "Wallet Recharge",
-                "notify": {
-                    "sms": True
-                }
-            })
+        await update.message.reply_text(f"💳 Pay here:\n{payment_link['short_url']}")
+        user_steps[uid] = None
 
-            users[uid]["order_id"] = payment_link["id"]
-            users[uid]["step"] = None
-
-            pay_link = payment_link["short_url"]
-
-            await update.message.reply_text(
-                f"💳 Pay ₹{amount} here:\n{pay_link}"
-            )
-
-        except Exception as e:
-            print("ERROR:", e)
-            await update.message.reply_text("❌ Payment link error, try again")
-
-    # 👍 YOUTUBE LIKES
     elif text == "👍 YouTube Likes":
-        users[uid]["action"] = "yt"
-        await update.message.reply_text("🔗 Send YouTube Video Link")
+        user_steps[uid] = "yt_link"
+        await update.message.reply_text("🔗 Send YouTube link")
 
-    # 🎯 ORDER
-    elif "youtube" in text or "youtu.be" in text:
-        if users[uid]["balance"] < 30:
-            await update.message.reply_text("❌ Low Balance")
+    elif user_steps.get(uid) == "yt_link":
+        context.user_data["link"] = text
+        user_steps[uid] = "yt_qty"
+        await update.message.reply_text("📊 Enter quantity (1000 = ₹20)")
+
+    elif user_steps.get(uid) == "yt_qty":
+        if not text.isdigit():
+            await update.message.reply_text("❌ Invalid quantity")
             return
 
-        users[uid]["balance"] -= 30
+        qty = int(text)
+        price = (qty / 1000) * 20
+
+        if balance < price:
+            await update.message.reply_text(f"❌ Need ₹{price}")
+            return
+
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id=?", (price, uid))
+        conn.commit()
 
         data = {
             "key": API_KEY,
             "action": "add",
             "service": "3062",
-            "link": text,
-            "quantity": 100
+            "link": context.user_data["link"],
+            "quantity": qty
         }
 
         res = requests.post(API_URL, data=data).json()
 
         if "order" in res:
-            await update.message.reply_text(f"✅ Order Success\n🆔 ID: {res['order']}")
+            await update.message.reply_text(f"✅ Order Done\n🆔 {res['order']}")
         else:
-            await update.message.reply_text(f"❌ Error: {res}") 
-# ===== FLASK WEBHOOK =====
+            await update.message.reply_text("❌ Order failed")
+
+        user_steps[uid] = None
+
+# ===== WEBHOOK =====
 app_web = Flask(__name__)
 
 @app_web.route("/webhook", methods=["POST"])
 def webhook():
+    signature = request.headers.get("X-Razorpay-Signature")
+    body = request.data
+
+    expected = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        return {"status": "invalid signature"}, 400
+
     data = request.json
 
     if data.get("event") == "payment.captured":
         payment = data["payload"]["payment"]["entity"]
+        payment_id = payment["id"]
 
-        order_id = payment["order_id"]
+        # duplicate check
+        cursor.execute("SELECT * FROM payments WHERE payment_id=?", (payment_id,))
+        if cursor.fetchone():
+            return {"status": "duplicate"}
+
+        uid = int(payment["notes"]["user_id"])
         amount = payment["amount"] / 100
 
-        for uid in users:
-            if users[uid].get("order_id") == order_id:
-                users[uid]["balance"] += amount
-                users[uid]["order_id"] = None
-                print(f"₹{amount} added to {uid}")
+        update_balance(uid, amount)
+
+        cursor.execute("INSERT INTO payments VALUES (?, ?, ?)", (payment_id, uid, amount))
+        conn.commit()
+
+        asyncio.run(bot.send_message(chat_id=uid, text=f"✅ ₹{amount} added"))
 
     return {"status": "ok"}
 
-# ===== TELEGRAM BOT =====
+# ===== RUN =====
 def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-    print("🤖 Bot Started...")
+    print("Bot Running...")
     app.run_polling()
-# ===== WEB SERVER =====
-def start_web():
-    print("🌐 Webhook Started...")
-    app_web.run(host="0.0.0.0", port=5000)
 
-# ===== MAIN =====
+def start_web():
+    port = int(os.environ.get("PORT", 5000))
+    app_web.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
-    threading.Thread(target=start_web).start()
-    start_bot()
+    threading.Thread(target=start_bot).start()
+    start_web()
