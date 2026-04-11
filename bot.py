@@ -256,11 +256,18 @@ def webhook():
         cursor.execute("INSERT INTO payments VALUES (?,?,?)", (pid, tg, amt))
         conn.commit()
 
-        asyncio.run(bot.send_message(tg, f"✅ ₹{amt} added"))
-        asyncio.run(bot.send_message(ADMIN_ID, f"💰 Payment ₹{amt} from {tg}"))
+        # ✅ FIXED (NO ASYNCIO)
+        requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            params={"chat_id": tg, "text": f"✅ ₹{amt} added"}
+        )
+
+        requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            params={"chat_id": ADMIN_ID, "text": f"💰 Payment ₹{amt} from {tg}"}
+        )
 
     return {"status": "ok"}
-
 # ===== RUN =====
 def run_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
