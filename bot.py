@@ -27,19 +27,70 @@ WEBHOOK_SECRET = "ayush@123"
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
-# ===== DATABASE =====
-conn = sqlite3.connect("users.db", check_same_thread=False)
-cursor = conn.cursor()
+# ===== DB INIT =====
+def init_db():
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS users (telegram_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0)")
+    cur.execute("CREATE TABLE IF NOT EXISTS payments (payment_id TEXT PRIMARY KEY, telegram_id INTEGER, amount REAL)")
+    cur.execute("CREATE TABLE IF NOT EXISTS orders (order_id TEXT, telegram_id INTEGER, service TEXT, link TEXT, quantity INTEGER)")
+    conn.commit()
+    conn.close()
 
-cursor.execute("CREATE TABLE IF NOT EXISTS users (telegram_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0)")
-cursor.execute("CREATE TABLE IF NOT EXISTS payments (payment_id TEXT PRIMARY KEY, telegram_id INTEGER, amount REAL)")
-cursor.execute("CREATE TABLE IF NOT EXISTS orders (order_id TEXT, telegram_id INTEGER, service TEXT, link TEXT, quantity INTEGER)")
-conn.commit()
+init_db()
 
-# ===== STATE =====
-user_steps = {}
+# ===== DB SAFE FUNCTIONS =====
+def db():
+    return sqlite3.connect("users.db")
+
+def get_balance(tg):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT balance FROM users WHERE telegram_id=?", (tg,))
+    r = cur.fetchone()
+
+    if not r:
+        cur.execute("INSERT INTO users VALUES (?,0)", (tg,))
+        conn.commit()
+        conn.close()
+        return 0
+
+    bal = r[0]
+    conn.close()
+    return bal
+
+def update_balance(tg, amt):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET balance = balance + ? WHERE telegram_id=?", (amt, tg))
+    conn.commit()
+    conn.close()
+
+def payment_exists(pid):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM payments WHERE payment_id=?", (pid,))
+    r = cur.fetchone()
+    conn.close()
+    return r is not None
+
+def save_payment(pid, tg, amt):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO payments VALUES (?,?,?)", (pid, tg, amt))
+    conn.commit()
+    conn.close()
+
+def save_order(order_id, tg, service, link, qty):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO orders VALUES (?,?,?,?,?)", (order_id, tg, service, link, qty))
+    conn.commit()
+    conn.close()
 
 # ===== UI =====
+user_steps = {}
+
 def main_menu():
     return ReplyKeyboardMarkup(
         [["👤 Account", "💰 Recharge"],
@@ -59,24 +110,9 @@ def confirm_kb():
 
 BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
 
-# ===== USER =====
-def get_balance(tg):
-    cursor.execute("SELECT balance FROM users WHERE telegram_id=?", (tg,))
-    r = cursor.fetchone()
-    if not r:
-        cursor.execute("INSERT INTO users VALUES (?,0)", (tg,))
-        conn.commit()
-        return 0
-    return r[0]
-
-def update_balance(tg, amt):
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE telegram_id=?", (amt, tg))
-    conn.commit()
-
 # ===== BOT =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bal = get_balance(update.message.chat_id)
-    await update.message.reply_text(f"💰 Balance: ₹{bal}", reply_markup=main_menu())
+    await update.message.reply_text(f"💰 Balance: ₹{get_balance(update.message.chat_id)}", reply_markup=main_menu())
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
@@ -99,6 +135,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("Enter valid number")
 
         amt = int(text)
+
         link = client.payment_link.create({
             "amount": amt * 100,
             "currency": "INR",
@@ -135,10 +172,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         user_steps[tg] = "l3"
-        return await update.message.reply_text(
-            f"{qty} Likes = ₹{round(price,2)}\nConfirm?",
-            reply_markup=confirm_kb()
-        )
+        return await update.message.reply_text(f"{qty} Likes = ₹{round(price,2)}\nConfirm?", reply_markup=confirm_kb())
 
     if step == "l3":
         if text == "❌ Cancel":
@@ -158,6 +192,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
+            save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
             await update.message.reply_text("✅ Order Placed", reply_markup=main_menu())
         else:
             await update.message.reply_text("❌ Failed", reply_markup=main_menu())
@@ -188,10 +223,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         user_steps[tg] = "c3"
-        return await update.message.reply_text(
-            f"{qty} Comments = ₹{round(price,2)}\nConfirm?",
-            reply_markup=confirm_kb()
-        )
+        return await update.message.reply_text(f"{qty} Comments = ₹{round(price,2)}\nConfirm?", reply_markup=confirm_kb())
 
     if step == "c3":
         if text == "❌ Cancel":
@@ -211,6 +243,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
+            save_order(res["order"], tg, "comments", context.user_data["link"], context.user_data["qty"])
             await update.message.reply_text("✅ Order Placed", reply_markup=main_menu())
         else:
             await update.message.reply_text("❌ Failed", reply_markup=main_menu())
@@ -218,8 +251,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_steps[tg] = None
 
     if text == "📦 Orders":
-        cursor.execute("SELECT * FROM orders WHERE telegram_id=?", (tg,))
-        rows = cursor.fetchall()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM orders WHERE telegram_id=?", (tg,))
+        rows = cur.fetchall()
+        conn.close()
 
         if not rows:
             return await update.message.reply_text("No orders")
@@ -252,16 +288,12 @@ def webhook():
         amt = entity["amount_paid"] / 100
         pid = entity["id"]
 
-        cursor.execute("SELECT * FROM payments WHERE payment_id=?", (pid,))
-        if cursor.fetchone():
+        if payment_exists(pid):
             return {"status": "duplicate"}
 
         update_balance(tg, amt)
+        save_payment(pid, tg, amt)
 
-        cursor.execute("INSERT INTO payments VALUES (?,?,?)", (pid, tg, amt))
-        conn.commit()
-
-        # FIXED (no asyncio issue)
         requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                      params={"chat_id": tg, "text": f"✅ ₹{amt} added"})
 
