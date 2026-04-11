@@ -1,8 +1,6 @@
 import requests
 import razorpay
 import sqlite3
-import hmac
-import hashlib
 import os
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, Bot
@@ -33,90 +31,85 @@ WEBHOOK_SECRET = "ayush@123"
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
 
-# ===== DATABASE =====
+# ===== DATABASE (PERMANENT) =====
 if not os.path.exists("data"):
     os.makedirs("data")
 
 conn = sqlite3.connect("data/users.db", check_same_thread=False)
 cursor = conn.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER UNIQUE,
-    balance REAL DEFAULT 0
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS payments (
-    payment_id TEXT PRIMARY KEY,
-    telegram_id INTEGER,
-    amount REAL
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS orders (
-    order_id TEXT,
-    telegram_id INTEGER,
-    service TEXT,
-    quantity INTEGER
-)
-""")
-
+cursor.execute("CREATE TABLE IF NOT EXISTS users (telegram_id INTEGER PRIMARY KEY, balance REAL DEFAULT 0)")
+cursor.execute("CREATE TABLE IF NOT EXISTS orders (order_id TEXT, telegram_id INTEGER, service TEXT, qty INTEGER)")
+cursor.execute("CREATE TABLE IF NOT EXISTS payments (payment_id TEXT PRIMARY KEY, telegram_id INTEGER, amount REAL)")
 conn.commit()
 
 # ===== USER =====
-def get_user(tg_id):
-    cursor.execute("SELECT id, balance FROM users WHERE telegram_id=?", (tg_id,))
+def get_balance(tg_id):
+    cursor.execute("SELECT balance FROM users WHERE telegram_id=?", (tg_id,))
     user = cursor.fetchone()
-
-    if user:
-        return user
-    else:
+    if not user:
         cursor.execute("INSERT INTO users (telegram_id) VALUES (?)", (tg_id,))
         conn.commit()
-        return get_user(tg_id)
+        return 0
+    return user[0]
 
 def update_balance(tg_id, amount):
     cursor.execute("UPDATE users SET balance = balance + ? WHERE telegram_id=?", (amount, tg_id))
     conn.commit()
 
-# ===== MENU =====
+# ===== MENUS =====
 def main_menu():
     return ReplyKeyboardMarkup([
         ["👤 Account", "💰 Recharge"],
-        ["📦 Orders", "🛒 Services"],
+        ["📦 Orders", "🛒 Services"]
+    ], resize_keyboard=True)
+
+def service_menu():
+    return ReplyKeyboardMarkup([
+        ["👍 Likes", "💬 Comments"],
         ["🔙 Back"]
     ], resize_keyboard=True)
 
-# ===== TELEGRAM =====
+# ===== STATE =====
 user_steps = {}
 
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = update.message.chat_id
-    user_id, _ = get_user(tg_id)
+    balance = get_balance(tg_id)
 
     await update.message.reply_text(
-        f"✨ Welcome to Cherap SMM Service 🚀\n🆔 Your ID: {user_id}",
+        f"✨ Welcome to Cherap SMM Service 🚀\n\n🆔 ID: {tg_id}",
         reply_markup=main_menu()
     )
 
+# ===== ADMIN =====
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.chat_id != ADMIN_ID:
+        return
+
+    keyboard = [
+        ["👥 Users", "💰 Total Balance"],
+        ["➕ Add Balance"],
+        ["🔙 Back"]
+    ]
+
+    await update.message.reply_text("👑 Admin Panel", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+
+# ===== HANDLER =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = update.message.chat_id
     text = update.message.text
-
-    user_id, balance = get_user(tg_id)
+    balance = get_balance(tg_id)
 
     # BACK
     if text == "🔙 Back":
         user_steps[tg_id] = None
-        return await update.message.reply_text("Back to menu", reply_markup=main_menu())
+        return await update.message.reply_text("Main Menu", reply_markup=main_menu())
 
     # ACCOUNT
-    elif text == "👤 Account":
-        return await update.message.reply_text(f"🆔 ID: {user_id}\n💰 Balance: ₹{balance}")
+    if text == "👤 Account":
+        return await update.message.reply_text(f"💰 Balance: ₹{balance}")
 
     # RECHARGE
     elif text == "💰 Recharge":
@@ -125,33 +118,29 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif user_steps.get(tg_id) == "amount":
         if not text.isdigit():
-            return await update.message.reply_text("❌ Enter valid amount")
+            return await update.message.reply_text("❌ Enter number")
 
         amount = int(text)
 
-        payment_link = client.payment_link.create({
+        link = client.payment_link.create({
             "amount": amount * 100,
             "currency": "INR",
             "notes": {"telegram_id": str(tg_id)}
         })
 
         user_steps[tg_id] = None
-        return await update.message.reply_text(f"💳 Pay here:\n{payment_link['short_url']}")
+        return await update.message.reply_text(f"💳 Pay:\n{link['short_url']}")
 
     # SERVICES
     elif text == "🛒 Services":
-        return await update.message.reply_text(
-            "Select Service:",
-            reply_markup=ReplyKeyboardMarkup(
-                [["👍 Likes", "💬 Comments"], ["🔙 Back"]],
-                resize_keyboard=True
-            )
-        )
+        return await update.message.reply_text("Select Service:", reply_markup=service_menu())
 
     # ===== LIKES =====
     elif text == "👍 Likes":
         user_steps[tg_id] = "like_link"
-        return await update.message.reply_text("🔥 Likes ₹29/1000\nMin 100\nSend Link:")
+        return await update.message.reply_text(
+            "🔥 Youtube Likes [No Drop] [Instant]\n💰 ₹25 / 1000\n📉 Min: 100\n\nSend Link:"
+        )
 
     elif user_steps.get(tg_id) == "like_link":
         context.user_data["link"] = text
@@ -159,18 +148,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Enter Quantity:")
 
     elif user_steps.get(tg_id) == "like_qty":
-        if not text.isdigit():
-            return await update.message.reply_text("❌ Enter number")
-
         qty = int(text)
-
-        if qty < 100:
-            return await update.message.reply_text("❌ Min 100")
-
-        price = (qty / 1000) * 29
+        price = (qty / 1000) * 25
 
         if balance < price:
-            return await update.message.reply_text("❌ Low balance")
+            return await update.message.reply_text("❌ Low Balance")
 
         update_balance(tg_id, -price)
 
@@ -183,43 +165,35 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }).json()
 
         if "order" in res:
-            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?)",
-                           (res["order"], tg_id, "likes", qty))
+            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?)", (res["order"], tg_id, "Likes", qty))
             conn.commit()
             await update.message.reply_text(f"✅ Order ID: {res['order']}")
-        else:
-            await update.message.reply_text("❌ Failed")
 
         user_steps[tg_id] = None
 
     # ===== COMMENTS =====
     elif text == "💬 Comments":
         user_steps[tg_id] = "c_link"
-        return await update.message.reply_text("💬 Comments ₹250/1000\nMin 10\nSend Link:")
+        return await update.message.reply_text(
+            "💬 Youtube Custom Comments (Instant)\n💰 ₹170 / 1000\n📉 Min: 10\n\nSend Link:"
+        )
 
     elif user_steps.get(tg_id) == "c_link":
         context.user_data["link"] = text
         user_steps[tg_id] = "c_text"
-        return await update.message.reply_text("Send comment text:")
+        return await update.message.reply_text("Send Comment Text:")
 
     elif user_steps.get(tg_id) == "c_text":
         context.user_data["comment"] = text
         user_steps[tg_id] = "c_qty"
-        return await update.message.reply_text("Enter quantity:")
+        return await update.message.reply_text("Enter Quantity:")
 
     elif user_steps.get(tg_id) == "c_qty":
-        if not text.isdigit():
-            return await update.message.reply_text("❌ Enter number")
-
         qty = int(text)
-
-        if qty < 10:
-            return await update.message.reply_text("❌ Min 10")
-
-        price = (qty / 1000) * 250
+        price = (qty / 1000) * 170
 
         if balance < price:
-            return await update.message.reply_text("❌ Low balance")
+            return await update.message.reply_text("❌ Low Balance")
 
         update_balance(tg_id, -price)
 
@@ -233,57 +207,50 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }).json()
 
         if "order" in res:
-            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?)",
-                           (res["order"], tg_id, "comments", qty))
+            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?)", (res["order"], tg_id, "Comments", qty))
             conn.commit()
             await update.message.reply_text(f"✅ Order ID: {res['order']}")
-        else:
-            await update.message.reply_text("❌ Failed")
 
         user_steps[tg_id] = None
 
     # ===== ORDERS =====
     elif text == "📦 Orders":
         cursor.execute("SELECT * FROM orders WHERE telegram_id=?", (tg_id,))
-        rows = cursor.fetchall()
+        data = cursor.fetchall()
 
-        if not rows:
-            return await update.message.reply_text("❌ No orders")
+        if not data:
+            return await update.message.reply_text("No Orders Found")
 
-        msg = "📦 Your Orders:\n\n"
-        for r in rows[-5:]:
-            msg += f"{r[2]} | {r[3]} | ID: {r[0]}\n"
+        msg = "📦 Orders:\n\n"
+        for d in data[-5:]:
+            msg += f"{d[2]} | {d[3]} | ID: {d[0]}\n"
 
         return await update.message.reply_text(msg)
 
     # ===== ADMIN =====
-    elif text == "/admin":
-        if tg_id != ADMIN_ID:
-            return await update.message.reply_text("❌ Not allowed")
-
-        return await update.message.reply_text(
-            "👑 Admin Panel",
-            reply_markup=ReplyKeyboardMarkup(
-                [["👥 Users", "💰 Total Balance"], ["🔙 Back"]],
-                resize_keyboard=True
-            )
-        )
-
-    elif text == "👥 Users":
-        if tg_id != ADMIN_ID:
-            return
-
+    elif text == "👥 Users" and tg_id == ADMIN_ID:
         cursor.execute("SELECT COUNT(*) FROM users")
         total = cursor.fetchone()[0]
-        return await update.message.reply_text(f"👥 Users: {total}")
+        return await update.message.reply_text(f"Users: {total}")
 
-    elif text == "💰 Total Balance":
-        if tg_id != ADMIN_ID:
-            return
-
+    elif text == "💰 Total Balance" and tg_id == ADMIN_ID:
         cursor.execute("SELECT SUM(balance) FROM users")
         total = cursor.fetchone()[0] or 0
-        return await update.message.reply_text(f"💰 Total: ₹{total}")
+        return await update.message.reply_text(f"₹{total}")
+
+    elif text == "➕ Add Balance" and tg_id == ADMIN_ID:
+        user_steps[tg_id] = "admin_user"
+        return await update.message.reply_text("Enter Telegram ID:")
+
+    elif user_steps.get(tg_id) == "admin_user":
+        context.user_data["target"] = int(text)
+        user_steps[tg_id] = "admin_amount"
+        return await update.message.reply_text("Enter Amount:")
+
+    elif user_steps.get(tg_id) == "admin_amount":
+        update_balance(context.user_data["target"], float(text))
+        user_steps[tg_id] = None
+        return await update.message.reply_text("✅ Balance Added")
 
 # ===== WEBHOOK =====
 app_web = Flask(__name__)
@@ -313,16 +280,24 @@ def webhook():
     return {"status": "ok"}
 
 # ===== RUN =====
-def start_bot():
+async def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # 🔥 IMPORTANT FIX
+    await app.bot.delete_webhook(drop_pending_updates=True)
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.run_polling(drop_pending_updates=True)
+
+    print("✅ Bot Running...")
+    await app.run_polling()
 
 def start_web():
-    port = int(os.environ.get("PORT", 5000))
-    app_web.run(host="0.0.0.0", port=port)
+    app_web.run(host="0.0.0.0", port=5000)
 
 if __name__ == "__main__":
     threading.Thread(target=start_web).start()
-    start_bot()
+
+    import asyncio
+    asyncio.run(start_bot())
