@@ -28,7 +28,6 @@ COMMENT_SERVICE_ID = "13259"
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
-
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
 
@@ -203,8 +202,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Low balance")
             return
 
-        update_balance(tg_id, -price)
-
+        # ✅ API FIRST
         res = requests.post(LIKE_API_URL, data={
             "key": LIKE_API_KEY,
             "action": "add",
@@ -214,16 +212,24 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }).json()
 
         if "order" in res:
+            update_balance(tg_id, -price)
             cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
                            (res["order"], tg_id, "likes", context.user_data["link"], qty))
             conn.commit()
-            await update.message.reply_text(f"✅ Order Placed\n🆔 {res['order']}")
+
+            await update.message.reply_text(
+                f"✅ Order Placed\n🆔 {res['order']}",
+                reply_markup=main_menu()
+            )
         else:
-            await update.message.reply_text("❌ Failed")
+            await update.message.reply_text(
+                f"❌ Failed\n{res}",
+                reply_markup=main_menu()
+            )
 
         user_steps[tg_id] = None
 
-    # ===== COMMENTS (AUTO COUNT) =====
+    # ===== COMMENTS =====
     elif "💬 Comments" in text:
         user_steps[tg_id] = "c_link"
         await update.message.reply_text("🔗 Send Post Link:", reply_markup=BACK_KB)
@@ -234,9 +240,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✍️ Send ALL Comments (each in new line):")
 
     elif step == "c_text":
-        comments_text = text.strip()
-
-        comments_list = [c for c in comments_text.split("\n") if c.strip() != ""]
+        comments_list = [c for c in text.split("\n") if c.strip() != ""]
         qty = len(comments_list)
 
         if qty == 0:
@@ -269,8 +273,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Low balance")
             return
 
-        update_balance(tg_id, -price)
-
+        # ✅ API FIRST
         res = requests.post(COMMENT_API_URL, data={
             "key": COMMENT_API_KEY,
             "action": "add",
@@ -280,15 +283,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }).json()
 
         if "order" in res:
+            update_balance(tg_id, -price)
             cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
                            (res["order"], tg_id, "comments", context.user_data["link"], qty))
             conn.commit()
 
             await update.message.reply_text(
-                f"✅ Order Placed\n🆔 {res['order']}\n💬 {qty} comments sent"
+                f"✅ Order Placed\n🆔 {res['order']}\n💬 {qty} comments",
+                reply_markup=main_menu()
             )
         else:
-            await update.message.reply_text("❌ Failed")
+            await update.message.reply_text(
+                f"❌ Failed\n{res}",
+                reply_markup=main_menu()
+            )
 
         user_steps[tg_id] = None
 
@@ -312,14 +320,6 @@ app_web = Flask(__name__)
 
 @app_web.route("/webhook", methods=["POST"])
 def webhook():
-    signature = request.headers.get("X-Razorpay-Signature")
-    body = request.data
-
-    expected = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(expected, signature):
-        return {"status": "invalid"}, 400
-
     data = request.json
 
     if data.get("event") == "payment_link.paid":
@@ -327,17 +327,8 @@ def webhook():
 
         tg_id = int(entity["notes"]["telegram_id"])
         amount = entity["amount_paid"] / 100
-        payment_id = entity["id"]
-
-        cursor.execute("SELECT * FROM payments WHERE payment_id=?", (payment_id,))
-        if cursor.fetchone():
-            return {"status": "duplicate"}
 
         update_balance(tg_id, amount)
-
-        cursor.execute("INSERT INTO payments VALUES (?, ?, ?)", (payment_id, tg_id, amount))
-        conn.commit()
-
         asyncio.run(bot.send_message(chat_id=tg_id, text=f"✅ ₹{amount} added"))
 
     return {"status": "ok"}
@@ -350,7 +341,7 @@ def start_bot():
     app.run_polling()
 
 def start_web():
-    app_web.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app_web.run(host="0.0.0.0", port=5000)
 
 if __name__ == "__main__":
     threading.Thread(target=start_web).start()
