@@ -9,6 +9,7 @@ from telegram import Update, ReplyKeyboardMarkup, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import threading
 import asyncio
+
 BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 ADMIN_ID = 8451049817
 
@@ -26,6 +27,7 @@ COMMENT_SERVICE_ID = "13259"
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
+
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
 
