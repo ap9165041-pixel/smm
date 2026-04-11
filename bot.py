@@ -11,20 +11,23 @@ import threading
 import asyncio
 
 # ===== ENV CONFIG =====
-BOT_TOKEN = os.getenv("8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE")
-ADMIN_ID = int(os.getenv("8451049817"))
+BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
+ADMIN_ID = 8451049817
 
-LIKE_API_KEY = os.getenv("7d01eb30166546130c171b26eecee191")
+# ===== LIKE API (OLD) =====
+LIKE_API_KEY = "7d01eb30166546130c171b26eecee191"
 LIKE_API_URL = "https://tntsmm.in/api/v2"
 LIKE_SERVICE_ID = "3062"
 
-COMMENT_API_KEY = os.getenv("a6a2e96cd415e968918b20baa261bc4b095f36c1")
+# ===== COMMENT API (NEW) =====
+COMMENT_API_KEY = "a6a2e96cd415e968918b20baa261bc4b095f36c1"
 COMMENT_API_URL = "https://smm-jupiter.com/api/v2"
 COMMENT_SERVICE_ID = "13259"
 
-RAZORPAY_KEY = os.getenv("rzp_live_Sc7lXEOJ2ZWjPL")
-RAZORPAY_SECRET = os.getenv("KxRu3ssMBcNLTQ7LxMY0jZIQ")
-WEBHOOK_SECRET = os.getenv("ayush@123")
+# ===== RAZORPAY =====
+RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
+RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
+WEBHOOK_SECRET = "ayush@123"
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
