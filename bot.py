@@ -11,13 +11,13 @@ import threading
 import asyncio
 
 # ===== CONFIG =====
-BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 API_KEY = "7d01eb30166546130c171b26eecee191"
 API_URL = "https://tntsmm.in/api/v2"
 
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
+
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
@@ -195,5 +195,5 @@ def start_web():
     app_web.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    threading.Thread(target=start_bot).start()
-    start_web()
+    threading.Thread(target=start_web).start()
+    start_bot()
