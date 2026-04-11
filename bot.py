@@ -1,14 +1,11 @@
 import requests
 import razorpay
 import sqlite3
-import hmac
-import hashlib
 import os
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import threading
-import asyncio
 
 # ===== CONFIG =====
 BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
@@ -28,6 +25,7 @@ COMMENT_SERVICE_ID = "13259"
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
+
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
 
@@ -63,19 +61,15 @@ user_steps = {}
 # ===== KEYBOARDS =====
 def main_menu():
     return ReplyKeyboardMarkup(
-        [
-            ["👤 Account", "💰 Recharge"],
-            ["📦 Orders", "🛒 Services"]
-        ],
+        [["👤 Account", "💰 Recharge"],
+         ["📦 Orders", "🛒 Services"]],
         resize_keyboard=True
     )
 
 def services_menu():
     return ReplyKeyboardMarkup(
-        [
-            ["👍 Likes (₹25/1000)", "💬 Comments (₹250/1000)"],
-            ["⬅️ Back"]
-        ],
+        [["👍 Likes (₹25/1000)", "💬 Comments (₹250/1000)"],
+         ["⬅️ Back"]],
         resize_keyboard=True
     )
 
@@ -121,17 +115,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, balance = get_user(tg_id)
     step = user_steps.get(tg_id)
 
-    # BACK
     if text == "⬅️ Back":
         user_steps[tg_id] = None
         await update.message.reply_text("🔙 Main Menu", reply_markup=main_menu())
         return
 
-    # ACCOUNT
     if text == "👤 Account":
         await update.message.reply_text(f"🆔 ID: {user_id}\n💰 Balance: ₹{balance}")
 
-    # RECHARGE
+    # ===== RECHARGE =====
     elif text == "💰 Recharge":
         user_steps[tg_id] = "amount"
         await update.message.reply_text("Enter amount:", reply_markup=BACK_KB)
@@ -149,50 +141,40 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "notes": {"telegram_id": str(tg_id)}
         })
 
-        await update.message.reply_text(payment['short_url'])
+        await update.message.reply_text(f"💳 Pay here:\n{payment['short_url']}")
         user_steps[tg_id] = None
 
-    # SERVICES
+    # ===== SERVICES =====
     elif text == "🛒 Services":
         await update.message.reply_text("Choose Service:", reply_markup=services_menu())
 
     # ===== LIKES =====
     elif "👍 Likes" in text:
         user_steps[tg_id] = "like_link"
-        await update.message.reply_text("🔗 Send Post Link:", reply_markup=BACK_KB)
+        await update.message.reply_text("🔗 Send Link:", reply_markup=BACK_KB)
 
     elif step == "like_link":
         context.user_data["link"] = text
         user_steps[tg_id] = "like_qty"
-        await update.message.reply_text("🔢 Enter Quantity (Min 100):")
+        await update.message.reply_text("Enter Quantity:")
 
     elif step == "like_qty":
-        if not text.isdigit():
-            await update.message.reply_text("❌ Invalid number")
-            return
-
         qty = int(text)
-
-        if qty < 100:
-            await update.message.reply_text("❌ Minimum 100")
-            return
-
         price = (qty / 1000) * 25
 
         context.user_data["qty"] = qty
         context.user_data["price"] = price
 
         await update.message.reply_text(
-            f"📊 Order Summary\n👍 Likes: {qty}\n💰 Price: ₹{round(price,2)}\n\nConfirm?",
+            f"👍 Likes: {qty}\n💰 ₹{price}\nConfirm?",
             reply_markup=confirm_kb()
         )
-
         user_steps[tg_id] = "like_confirm"
 
     elif step == "like_confirm":
         if text == "❌ Cancel":
-            user_steps[tg_id] = None
             await update.message.reply_text("Cancelled", reply_markup=main_menu())
+            user_steps[tg_id] = None
             return
 
         qty = context.user_data["qty"]
@@ -202,7 +184,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Low balance")
             return
 
-        # ✅ API FIRST
         res = requests.post(LIKE_API_URL, data={
             "key": LIKE_API_KEY,
             "action": "add",
@@ -213,57 +194,41 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if "order" in res:
             update_balance(tg_id, -price)
-            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
-                           (res["order"], tg_id, "likes", context.user_data["link"], qty))
-            conn.commit()
-
-            await update.message.reply_text(
-                f"✅ Order Placed\n🆔 {res['order']}",
-                reply_markup=main_menu()
-            )
+            await update.message.reply_text(f"✅ Order: {res['order']}", reply_markup=main_menu())
         else:
-            await update.message.reply_text(
-                f"❌ Failed\n{res}",
-                reply_markup=main_menu()
-            )
+            await update.message.reply_text(f"❌ Failed\n{res}", reply_markup=main_menu())
 
         user_steps[tg_id] = None
 
     # ===== COMMENTS =====
     elif "💬 Comments" in text:
         user_steps[tg_id] = "c_link"
-        await update.message.reply_text("🔗 Send Post Link:", reply_markup=BACK_KB)
+        await update.message.reply_text("Send Link:", reply_markup=BACK_KB)
 
     elif step == "c_link":
         context.user_data["link"] = text
         user_steps[tg_id] = "c_text"
-        await update.message.reply_text("✍️ Send ALL Comments (each in new line):")
+        await update.message.reply_text("Send comments (each line new):")
 
     elif step == "c_text":
-        comments_list = [c for c in text.split("\n") if c.strip() != ""]
-        qty = len(comments_list)
-
-        if qty == 0:
-            await update.message.reply_text("❌ No comments found")
-            return
-
+        comments = [c for c in text.split("\n") if c.strip()]
+        qty = len(comments)
         price = (qty / 1000) * 250
 
-        context.user_data["comments"] = "\n".join(comments_list)
+        context.user_data["comments"] = "\n".join(comments)
         context.user_data["qty"] = qty
-        context.user_data["price"] = round(price, 2)
+        context.user_data["price"] = price
 
         await update.message.reply_text(
-            f"📊 Order Summary\n💬 Comments: {qty}\n💰 Price: ₹{round(price,2)}\n\nConfirm?",
+            f"💬 {qty} comments\n💰 ₹{price}\nConfirm?",
             reply_markup=confirm_kb()
         )
-
         user_steps[tg_id] = "c_confirm"
 
     elif step == "c_confirm":
         if text == "❌ Cancel":
-            user_steps[tg_id] = None
             await update.message.reply_text("Cancelled", reply_markup=main_menu())
+            user_steps[tg_id] = None
             return
 
         qty = context.user_data["qty"]
@@ -273,7 +238,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Low balance")
             return
 
-        # ✅ API FIRST
         res = requests.post(COMMENT_API_URL, data={
             "key": COMMENT_API_KEY,
             "action": "add",
@@ -284,54 +248,43 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if "order" in res:
             update_balance(tg_id, -price)
-            cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
-                           (res["order"], tg_id, "comments", context.user_data["link"], qty))
-            conn.commit()
-
-            await update.message.reply_text(
-                f"✅ Order Placed\n🆔 {res['order']}\n💬 {qty} comments",
-                reply_markup=main_menu()
-            )
+            await update.message.reply_text(f"✅ Order: {res['order']}", reply_markup=main_menu())
         else:
-            await update.message.reply_text(
-                f"❌ Failed\n{res}",
-                reply_markup=main_menu()
-            )
+            await update.message.reply_text(f"❌ Failed\n{res}", reply_markup=main_menu())
 
         user_steps[tg_id] = None
-
-    # ===== ORDERS =====
-    elif text == "📦 Orders":
-        cursor.execute("SELECT * FROM orders WHERE telegram_id=?", (tg_id,))
-        rows = cursor.fetchall()
-
-        if not rows:
-            await update.message.reply_text("No orders")
-            return
-
-        msg = "📦 Last Orders:\n"
-        for r in rows[-5:]:
-            msg += f"{r[2]} | {r[4]} | {r[0]}\n"
-
-        await update.message.reply_text(msg)
 
 # ===== WEBHOOK =====
 app_web = Flask(__name__)
 
 @app_web.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
+    try:
+        data = request.json
+        print("Webhook:", data)
 
-    if data.get("event") == "payment_link.paid":
-        entity = data["payload"]["payment_link"]["entity"]
+        if data.get("event") == "payment_link.paid":
+            entity = data["payload"]["payment_link"]["entity"]
 
-        tg_id = int(entity["notes"]["telegram_id"])
-        amount = entity["amount_paid"] / 100
+            tg_id = int(entity["notes"]["telegram_id"])
+            amount = entity["amount_paid"] / 100
+            payment_id = entity["id"]
 
-        update_balance(tg_id, amount)
-        asyncio.run(bot.send_message(chat_id=tg_id, text=f"✅ ₹{amount} added"))
+            cursor.execute("SELECT * FROM payments WHERE payment_id=?", (payment_id,))
+            if cursor.fetchone():
+                return {"status": "duplicate"}
 
-    return {"status": "ok"}
+            update_balance(tg_id, amount)
+            cursor.execute("INSERT INTO payments VALUES (?, ?, ?)", (payment_id, tg_id, amount))
+            conn.commit()
+
+            bot.send_message(chat_id=tg_id, text=f"✅ ₹{amount} added")
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        print("Webhook error:", e)
+        return {"status": "error"}
 
 # ===== RUN =====
 def start_bot():
