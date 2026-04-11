@@ -18,13 +18,13 @@ API_URL = "https://tntsmm.in/api/v2"
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
-
+ADMIN_ID = 8451049817  # 👈 apna telegram id
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 bot = Bot(token=BOT_TOKEN)
 
-# ===== DATABASE =====
-conn = sqlite3.connect("users.db", check_same_thread=False)
+# ===== DATABASE (PERSISTENT) =====
+conn = sqlite3.connect("/data/users.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -45,15 +45,15 @@ conn.commit()
 
 # ===== FUNCTIONS =====
 def get_user(uid):
-    cursor.execute("SELECT * FROM users WHERE user_id=?", (uid,))
-    user = cursor.fetchone()
+    cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
+    row = cursor.fetchone()
 
-    if not user:
+    if row:
+        return row[0]
+    else:
         cursor.execute("INSERT INTO users (user_id, balance) VALUES (?, ?)", (uid, 0))
         conn.commit()
-        return (uid, 0)
-
-    return user
+        return 0
 
 def update_balance(uid, amount):
     cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
@@ -66,7 +66,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
     get_user(uid)
 
-    keyboard = [["💰 Balance", "🔄 Recharge"], ["👍 YouTube Likes"]]
+    keyboard = [
+        ["💰 Balance", "🔄 Recharge"],
+        ["👍 YouTube Likes"],
+        ["🛠 Admin Panel"]
+    ]
 
     await update.message.reply_text(
         "🚀 Welcome to SMM Bot",
@@ -77,9 +81,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
     text = update.message.text
 
-    user = get_user(uid)
-    balance = user[1]
+    balance = get_user(uid)
 
+    # ===== USER =====
     if text == "💰 Balance":
         await update.message.reply_text(f"💰 Balance: ₹{balance}")
 
@@ -145,6 +149,56 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_steps[uid] = None
 
+    # ===== ADMIN PANEL =====
+    elif text == "🛠 Admin Panel":
+        if uid != ADMIN_ID:
+            await update.message.reply_text("❌ Access Denied")
+            return
+
+        keys = [["👥 Total Users", "💳 Check User"], ["➕ Add Balance"]]
+        await update.message.reply_text("🛠 Admin Panel",
+            reply_markup=ReplyKeyboardMarkup(keys, resize_keyboard=True))
+
+    elif text == "👥 Total Users" and uid == ADMIN_ID:
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total = cursor.fetchone()[0]
+        await update.message.reply_text(f"👥 Total Users: {total}")
+
+    elif text == "💳 Check User" and uid == ADMIN_ID:
+        user_steps[uid] = "check_user"
+        await update.message.reply_text("Enter User ID:")
+
+    elif user_steps.get(uid) == "check_user" and uid == ADMIN_ID:
+        target = int(text)
+        cursor.execute("SELECT balance FROM users WHERE user_id=?", (target,))
+        row = cursor.fetchone()
+
+        if row:
+            await update.message.reply_text(f"💰 Balance: ₹{row[0]}")
+        else:
+            await update.message.reply_text("❌ User not found")
+
+        user_steps[uid] = None
+
+    elif text == "➕ Add Balance" and uid == ADMIN_ID:
+        user_steps[uid] = "add_user"
+        await update.message.reply_text("Enter User ID:")
+
+    elif user_steps.get(uid) == "add_user" and uid == ADMIN_ID:
+        context.user_data["target"] = int(text)
+        user_steps[uid] = "add_amount"
+        await update.message.reply_text("Enter amount:")
+
+    elif user_steps.get(uid) == "add_amount" and uid == ADMIN_ID:
+        amount = float(text)
+        target = context.user_data["target"]
+
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, target))
+        conn.commit()
+
+        await update.message.reply_text(f"✅ ₹{amount} added to {target}")
+        user_steps[uid] = None
+
 # ===== WEBHOOK =====
 app_web = Flask(__name__)
 
@@ -164,7 +218,6 @@ def webhook():
         payment = data["payload"]["payment"]["entity"]
         payment_id = payment["id"]
 
-        # duplicate check
         cursor.execute("SELECT * FROM payments WHERE payment_id=?", (payment_id,))
         if cursor.fetchone():
             return {"status": "duplicate"}
