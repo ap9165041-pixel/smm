@@ -11,7 +11,6 @@ import threading
 import asyncio
 
 # ===== CONFIG =====
-# ===== CONFIG =====
 BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 ADMIN_ID = 8451049817
 
@@ -104,11 +103,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id, balance = get_user(tg_id)
 
-    # ===== ACCOUNT =====
     if text == "👤 Account":
         await update.message.reply_text(f"🆔 ID: {user_id}\n💰 Balance: ₹{balance}")
 
-    # ===== RECHARGE =====
     elif text == "💰 Recharge":
         user_steps[tg_id] = "amount"
         await update.message.reply_text("Enter amount:")
@@ -129,7 +126,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💳 Pay here:\n{payment_link['short_url']}")
         user_steps[tg_id] = None
 
-    # ===== SERVICES =====
     elif text == "🛒 Services":
         await update.message.reply_text(
             "Select Service:",
@@ -143,7 +139,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "👍 Likes":
         user_steps[tg_id] = "like_link"
         await update.message.reply_text(
-            "🔥 Youtube Likes [No Drop] [Instant]\n💰 Price: ₹25 / 1000\n📉 Min: 100\n\nSend Link:"
+            "🔥 Youtube Likes [No Drop] [Instant]\n💰 ₹25 / 1000\nMin 100\nSend Link:"
         )
 
     elif user_steps.get(tg_id) == "like_link":
@@ -155,7 +151,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         qty = int(text)
 
         if qty < 100:
-            await update.message.reply_text("❌ Minimum 100")
+            await update.message.reply_text("❌ Min 100")
             return
 
         price = (qty / 1000) * 25
@@ -179,7 +175,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
                            (res["order"], tg_id, "likes", context.user_data["link"], qty))
             conn.commit()
-            await update.message.reply_text(f"✅ Likes Order\n🆔 {res['order']}")
+            await update.message.reply_text(f"✅ Order ID: {res['order']}")
         else:
             await update.message.reply_text("❌ Failed")
 
@@ -189,7 +185,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "💬 Comments":
         user_steps[tg_id] = "c_link"
         await update.message.reply_text(
-            "💬 Youtube Custom Comments (Instant)\n💰 Price: ₹170 / 1000 comments\n📉 Min: 10\n\nSend Link:"
+            "💬 Youtube Custom Comments (Instant)\n💰 ₹170 / 1000\nMin 10\nSend Link:"
         )
 
     elif user_steps.get(tg_id) == "c_link":
@@ -206,7 +202,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         qty = int(text)
 
         if qty < 10:
-            await update.message.reply_text("❌ Minimum 10")
+            await update.message.reply_text("❌ Min 10")
             return
 
         price = (qty / 1000) * 170
@@ -231,13 +227,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?)",
                            (res["order"], tg_id, "comments", context.user_data["link"], qty))
             conn.commit()
-            await update.message.reply_text(f"✅ Comment Order\n🆔 {res['order']}")
+            await update.message.reply_text(f"✅ Order ID: {res['order']}")
         else:
             await update.message.reply_text("❌ Failed")
 
         user_steps[tg_id] = None
 
-    # ===== ORDERS =====
     elif text == "📦 Orders":
         cursor.execute("SELECT * FROM orders WHERE telegram_id=?", (tg_id,))
         rows = cursor.fetchall()
@@ -246,13 +241,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("No orders")
             return
 
-        msg = "📦 Your Orders:\n\n"
+        msg = "📦 Orders:\n"
         for r in rows[-5:]:
             msg += f"{r[2]} | {r[4]} | ID: {r[0]}\n"
 
         await update.message.reply_text(msg)
 
-# ===== WEBHOOK FIXED =====
+# ===== WEBHOOK (FINAL FIX) =====
 app_web = Flask(__name__)
 
 @app_web.route("/webhook", methods=["POST"])
@@ -267,17 +262,16 @@ def webhook():
 
     data = request.json
 
-    # 🔥 FIXED EVENT
     if data.get("event") == "payment_link.paid":
-        payment = data["payload"]["payment"]["entity"]
-        payment_id = payment["id"]
+        payment_link = data["payload"]["payment_link"]["entity"]
+
+        tg_id = int(payment_link["notes"]["telegram_id"])
+        amount = payment_link["amount_paid"] / 100
+        payment_id = payment_link["id"]
 
         cursor.execute("SELECT * FROM payments WHERE payment_id=?", (payment_id,))
         if cursor.fetchone():
             return {"status": "duplicate"}
-
-        tg_id = int(payment["notes"]["telegram_id"])
-        amount = payment["amount"] / 100
 
         update_balance(tg_id, amount)
 
