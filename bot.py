@@ -11,6 +11,7 @@ import threading
 import asyncio
 
 # ===== CONFIG =====
+BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 API_KEY = "7d01eb30166546130c171b26eecee191"
 API_URL = "https://tntsmm.in/api/v2"
 
