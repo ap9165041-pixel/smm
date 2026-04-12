@@ -27,7 +27,6 @@ WEBHOOK_SECRET = "ayush@123"
 
 APP_URL = "https://smm-production-3fc3.up.railway.app" # 👈 CHANGE THIS
 
-
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
 # ===== DB =====
@@ -97,20 +96,16 @@ user_steps = {}
 
 def main_menu():
     return ReplyKeyboardMarkup(
-        [
-            ["📊 Dashboard", "💳 Add Funds"],
-            ["🚀 Services", "📦 Orders"],
-            ["🆘 Support"]
-        ],
+        [["📊 Dashboard", "💳 Add Funds"],
+         ["🚀 Services", "📦 Orders"],
+         ["🆘 Support"]],
         resize_keyboard=True
     )
 
 def services_menu():
     return ReplyKeyboardMarkup(
-        [
-            ["👍 Instagram Likes", "💬 Instagram Comments"],
-            ["⬅️ Back"]
-        ],
+        [["👍 Instagram Likes", "💬 Instagram Comments"],
+         ["⬅️ Back"]],
         resize_keyboard=True
     )
 
@@ -122,7 +117,6 @@ BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
 # ===== TELEGRAM =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
     bal = get_balance(tg)
@@ -137,7 +131,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
     await update.message.reply_text(msg, reply_markup=main_menu(), parse_mode="Markdown")
 
-# ===== HANDLER =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
     text = update.message.text
@@ -177,58 +170,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-    # ===== SERVICES =====
-    if text == "🚀 Services":
-        return await update.message.reply_text("Select service:", reply_markup=services_menu())
-
-    # ===== LIKES =====
-    if "👍 Instagram Likes" in text:
-        user_steps[tg] = "l1"
-        return await update.message.reply_text("Send post link:", reply_markup=BACK)
-
-    if step == "l1":
-        context.user_data["link"] = text
-        user_steps[tg] = "l2"
-        return await update.message.reply_text("Enter quantity:")
-
-    if step == "l2":
-        if not text.isdigit():
-            return await update.message.reply_text("Invalid quantity")
-
-        qty = int(text)
-        price = (qty / 1000) * 29
-
-        context.user_data["qty"] = qty
-        context.user_data["price"] = price
-
-        user_steps[tg] = "l3"
-        return await update.message.reply_text(
-            f"{qty} Likes = ₹{round(price,2)}",
-            reply_markup=confirm_kb()
-        )
-
-    if step == "l3":
-        if text == "❌ Cancel":
-            user_steps[tg] = None
-            return await update.message.reply_text("Cancelled", reply_markup=main_menu())
-
-        if get_balance(tg) < context.user_data["price"]:
-            return await update.message.reply_text("Low balance")
-
-        res = requests.post(LIKE_API_URL, data={
-            "key": LIKE_API_KEY,
-            "action": "add",
-            "service": LIKE_SERVICE_ID,
-            "link": context.user_data["link"],
-            "quantity": context.user_data["qty"]
-        }).json()
-
-        if "order" in res:
-            update_balance(tg, -context.user_data["price"])
-            save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
-            await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
-
-        user_steps[tg] = None
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 # ===== FLASK =====
 app = Flask(__name__)
@@ -238,7 +181,9 @@ def telegram_webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, telegram_app.bot)
 
-    asyncio.run(telegram_app.process_update(update))
+    loop = asyncio.get_event_loop()
+    loop.create_task(telegram_app.process_update(update))
+
     return "ok"
 
 # ===== RAZORPAY WEBHOOK =====
@@ -274,7 +219,9 @@ def razorpay_webhook():
 
 # ===== START =====
 if __name__ == "__main__":
-    asyncio.run(telegram_app.initialize())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(telegram_app.initialize())
+    loop.run_until_complete(telegram_app.start())
 
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={APP_URL}/{BOT_TOKEN}")
