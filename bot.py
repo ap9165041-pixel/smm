@@ -110,7 +110,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 Likes (₹29/1000)", "💬 Comments (₹250/1000)"],
+            ["👍 Youtube Likes (₹29/1000)", "💬 Youtube Comments (₹250/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
