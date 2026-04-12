@@ -104,7 +104,7 @@ def main_menu():
 
 def services_menu():
     return ReplyKeyboardMarkup(
-        [["👍 Likes (₹29/1000)"],
+        [["👍 Likes (₹29/1000)", "💬 Comments (₹250/1000)"],
          ["⬅️ Back"]],
         resize_keyboard=True
     )
@@ -114,7 +114,7 @@ def confirm_kb():
 
 BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
 
-# ===== TELEGRAM APP =====
+# ===== TELEGRAM =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -133,6 +133,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "👤 Account":
         return await update.message.reply_text(f"💰 ₹{get_balance(tg)}")
 
+    # ===== RECHARGE =====
     if text == "💰 Recharge":
         user_steps[tg] = "amount"
         return await update.message.reply_text("Enter amount:", reply_markup=BACK)
@@ -152,6 +153,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_steps[tg] = None
         return await update.message.reply_text(link['short_url'])
 
+    # ===== SERVICES =====
     if text == "🛒 Services":
         return await update.message.reply_text("Choose:", reply_markup=services_menu())
 
@@ -202,7 +204,61 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
             save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
-            await update.message.reply_text("✅ Order Placed", reply_markup=main_menu())
+            await update.message.reply_text("✅ Likes Order Placed", reply_markup=main_menu())
+        else:
+            await update.message.reply_text("❌ Failed", reply_markup=main_menu())
+
+        user_steps[tg] = None
+
+    # ===== COMMENTS =====
+    if "💬 Comments" in text:
+        user_steps[tg] = "c1"
+        return await update.message.reply_text("Send link:", reply_markup=BACK)
+
+    if step == "c1":
+        context.user_data["link"] = text
+        user_steps[tg] = "c2"
+        return await update.message.reply_text("Send comments (line by line):")
+
+    if step == "c2":
+        comments = [c for c in text.split("\n") if c.strip()]
+        qty = len(comments)
+
+        if qty < 10:
+            return await update.message.reply_text("Minimum 10 comments")
+
+        price = (qty / 1000) * 250
+
+        context.user_data["comments"] = "\n".join(comments)
+        context.user_data["qty"] = qty
+        context.user_data["price"] = price
+
+        user_steps[tg] = "c3"
+        return await update.message.reply_text(
+            f"{qty} Comments = ₹{round(price,2)}\nConfirm?",
+            reply_markup=confirm_kb()
+        )
+
+    if step == "c3":
+        if text == "❌ Cancel":
+            user_steps[tg] = None
+            return await update.message.reply_text("Cancelled", reply_markup=main_menu())
+
+        if get_balance(tg) < context.user_data["price"]:
+            return await update.message.reply_text("Low balance")
+
+        res = requests.post(COMMENT_API_URL, data={
+            "key": COMMENT_API_KEY,
+            "action": "add",
+            "service": COMMENT_SERVICE_ID,
+            "link": context.user_data["link"],
+            "comments": context.user_data["comments"]
+        }).json()
+
+        if "order" in res:
+            update_balance(tg, -context.user_data["price"])
+            save_order(res["order"], tg, "comments", context.user_data["link"], context.user_data["qty"])
+            await update.message.reply_text("✅ Comments Order Placed", reply_markup=main_menu())
         else:
             await update.message.reply_text("❌ Failed", reply_markup=main_menu())
 
@@ -217,13 +273,12 @@ app = Flask(__name__)
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def telegram_webhook():
     data = request.get_json(force=True)
-
     update = Update.de_json(data, telegram_app.bot)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    loop.run_until_complete(telegram_app.initialize())  # 🔥 IMPORTANT
+    loop.run_until_complete(telegram_app.initialize())
     loop.run_until_complete(telegram_app.process_update(update))
 
     return "ok"
