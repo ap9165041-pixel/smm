@@ -253,15 +253,11 @@ def razorpay_webhook():
 
 # ===== START =====
 if __name__ == "__main__":
-    import asyncio
-
-    async def main():
-        await telegram_app.initialize()
-        await telegram_app.start()
-
-    asyncio.run(main())
-
+    # Set webhook
+    requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={APP_URL}/{BOT_TOKEN}")
+
+    print("✅ BOT STARTED WITH WEBHOOK")
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
