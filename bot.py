@@ -26,6 +26,7 @@ RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
 
 
+
 APP_URL = "https://smm-production-3fc3.up.railway.app"
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
@@ -323,4 +324,4 @@ if __name__ == "__main__":
     print("WEBHOOK SET")
 
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port) 
+    app.run(host="0.0.0.0", port=port)
