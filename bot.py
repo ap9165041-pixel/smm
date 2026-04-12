@@ -280,11 +280,18 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_steps[tg] = None
         return await update.message.reply_text("Main Menu", reply_markup=main_menu())
 
-   if text == "👤 Account":
+if text == "👤 Account":
     user = update.message.from_user
 
     name = user.first_name or "User"
     username = f"@{user.username}" if user.username else "N/A"
+
+    # 📦 TOTAL ORDERS COUNT
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM orders WHERE telegram_id=?", (tg,))
+    total_orders = cur.fetchone()[0]
+    conn.close()
 
     msg = f"""
 👤 *User Profile*
@@ -295,8 +302,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ━━━━━━━━━━━━━━━
 💰 Balance: ₹{get_balance(tg)}
+📦 Orders: {total_orders}
 ━━━━━━━━━━━━━━━
-
+"""
 
     return await update.message.reply_text(msg, parse_mode="Markdown")
 
