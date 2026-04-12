@@ -115,7 +115,8 @@ BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
 
 # ===== BOT =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"💰 Balance: ₹{get_balance(update.message.chat_id)}", reply_markup=main_menu())
+    tg = update.message.chat_id
+    await update.message.reply_text(f"💰 Balance: ₹{get_balance(tg)}", reply_markup=main_menu())
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
@@ -176,10 +177,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         user_steps[tg] = "l3"
-        return await update.message.reply_text(f"{qty} Likes = ₹{round(price,2)}\nType YES to confirm", reply_markup=confirm_kb())
+        return await update.message.reply_text(
+            f"{qty} Likes = ₹{round(price,2)}\nType YES to confirm",
+            reply_markup=confirm_kb()
+        )
 
     if step == "l3":
-        if text == "NO":
+        if text != "YES":
             user_steps[tg] = None
             return await update.message.reply_text("Cancelled", reply_markup=main_menu())
 
@@ -197,9 +201,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
             save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
-            await update.message.reply_text("Order placed", reply_markup=main_menu())
+            await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
         else:
-            await update.message.reply_text("Failed")
+            await update.message.reply_text("❌ Failed", reply_markup=main_menu())
 
         user_steps[tg] = None
 
@@ -225,47 +229,74 @@ app_web = Flask(__name__)
 
 @app_web.route("/webhook", methods=["POST"])
 def webhook():
-    body = request.data
-    sig = request.headers.get("X-Razorpay-Signature")
+    try:
+        body = request.data
+        sig = request.headers.get("X-Razorpay-Signature")
 
-    gen = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+        gen = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
 
-    if not hmac.compare_digest(gen, sig):
-        return {"status": "invalid"}, 400
+        if not hmac.compare_digest(gen, sig):
+            print("INVALID SIGNATURE")
+            return {"status": "invalid"}, 400
 
-    data = request.json
+        data = request.json
+        print("WEBHOOK:", data)
 
-    if data.get("event") == "payment.captured":
+        if data.get("event") == "payment.captured":
+            payment = data["payload"]["payment"]["entity"]
 
-        payment = data["payload"]["payment"]["entity"]
+            pid = payment["id"]
+            amt = payment["amount"] / 100
 
-        pid = payment["id"]
-        amt = payment["amount"] / 100
-        tg = int(payment["notes"]["telegram_id"])
+            notes = payment.get("notes", {})
+            tg = notes.get("telegram_id")
 
-        if payment_exists(pid):
-            return {"status": "duplicate"}
+            if not tg:
+                print("NO TG ID")
+                return {"status": "no tg"}
 
-        print("ADDING BALANCE:", tg, amt)
+            tg = int(tg)
 
-        update_balance(tg, amt)
-        save_payment(pid, tg, amt)
+            if payment_exists(pid):
+                print("DUPLICATE")
+                return {"status": "duplicate"}
 
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                     params={"chat_id": tg, "text": f"₹{amt} added"})
+            print("ADDING:", tg, amt)
 
-    return {"status": "ok"}
+            update_balance(tg, amt)
+            save_payment(pid, tg, amt)
+
+            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                         params={"chat_id": tg, "text": f"✅ ₹{amt} added"})
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        print("ERROR:", str(e))
+        return {"status": "error"}
 
 # ===== RUN =====
 def run_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.run_polling()
+
+    print("BOT STARTED")
+    app.run_polling(drop_pending_updates=True)
 
 def run_web():
+    print("WEBHOOK STARTED")
     app_web.run(host="0.0.0.0", port=5000)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_web).start()
+    # ✅ FIX: remove old webhook (conflict fix)
+    try:
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+    except:
+        pass
+
+    t = threading.Thread(target=run_web)
+    t.daemon = True
+    t.start()
+
     run_bot()
