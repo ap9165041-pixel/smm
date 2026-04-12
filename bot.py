@@ -24,7 +24,9 @@ COMMENT_SERVICE_ID = "13259"
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
+
 APP_URL = "https://smm-production-3fc3.up.railway.app" # 👈 CHANGE THIS
+
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
 # ===== DB =====
@@ -133,9 +135,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 👤 ID: {tg}
 💰 Balance: ₹{bal}
-
-⚡ Fast • Secure • Trusted
 """
+
     await update.message.reply_text(msg, reply_markup=main_menu())
 
 # ===== HANDLER =====
@@ -149,8 +150,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Main Menu", reply_markup=main_menu())
 
     if text == "📊 Dashboard":
-        return await update.message.reply_text(f"💰 Balance: ₹{get_balance(tg)}")
+        return await update.message.reply_text(f"💰 ₹{get_balance(tg)}")
 
+    # ===== ADD FUNDS =====
     if text == "💳 Add Funds":
         user_steps[tg] = "amount"
         return await update.message.reply_text("Enter amount:", reply_markup=BACK)
@@ -164,12 +166,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link = client.payment_link.create({
             "amount": amt * 100,
             "currency": "INR",
+            "description": f"Wallet Topup ₹{amt}",
             "notes": {"telegram_id": str(tg)}
         })
 
         user_steps[tg] = None
-        return await update.message.reply_text(f"💳 Pay here:\n{link['short_url']}")
+        return await update.message.reply_text(f"💳 Pay:\n{link['short_url']}")
 
+    # ===== SERVICES =====
     if text == "🚀 Services":
         return await update.message.reply_text("Select service:", reply_markup=services_menu())
 
@@ -191,10 +195,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         user_steps[tg] = "l3"
-        return await update.message.reply_text(
-            f"{qty} Likes = ₹{price}",
-            reply_markup=confirm_kb()
-        )
+        return await update.message.reply_text(f"{qty} Likes = ₹{price}", reply_markup=confirm_kb())
 
     if step == "l3":
         if text == "❌ Cancel":
@@ -214,17 +215,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
+            save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
             await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
 
         user_steps[tg] = None
-
-    # ===== SUPPORT =====
-    if text == "🆘 Support":
-        return await update.message.reply_text("Contact Admin: @ayushpatelh")
-
-# ===== HANDLERS =====
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 # ===== FLASK =====
 app = Flask(__name__)
@@ -234,13 +228,17 @@ def telegram_webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, telegram_app.bot)
 
-    asyncio.run(telegram_app.process_update(update))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(telegram_app.initialize())
+    loop.run_until_complete(telegram_app.process_update(update))
+
     return "ok"
 
+# ===== RAZORPAY WEBHOOK =====
 @app.route("/webhook", methods=["POST"])
 def razorpay_webhook():
-    print("🔥 PAYMENT RECEIVED")
-
     body = request.data
     sig = request.headers.get("X-Razorpay-Signature")
 
@@ -276,7 +274,7 @@ if __name__ == "__main__":
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={APP_URL}/{BOT_TOKEN}")
 
-    print("✅ BOT RUNNING")
+    print("BOT RUNNING")
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
