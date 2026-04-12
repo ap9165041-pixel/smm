@@ -4,6 +4,7 @@ import sqlite3
 import hmac
 import hashlib
 import os
+import asyncio
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -176,10 +177,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         user_steps[tg] = "l3"
-        return await update.message.reply_text(
-            f"{qty} Likes = ₹{round(price,2)}\nConfirm?",
-            reply_markup=confirm_kb()
-        )
+        return await update.message.reply_text(f"{qty} Likes = ₹{round(price,2)}\nConfirm?", reply_markup=confirm_kb())
 
     if step == "l3":
         if text == "❌ Cancel":
@@ -223,7 +221,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(msg)
 
-# add handlers
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
@@ -231,10 +228,14 @@ telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle)
 app = Flask(__name__)
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-async def telegram_webhook():
+def telegram_webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.process_update(update)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(telegram_app.process_update(update))
+
     return "ok"
 
 @app.route("/webhook", methods=["POST"])
@@ -271,7 +272,6 @@ def razorpay_webhook():
 
 # ===== START =====
 if __name__ == "__main__":
-    # 🔥 SET TELEGRAM WEBHOOK
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={APP_URL}/{BOT_TOKEN}")
 
