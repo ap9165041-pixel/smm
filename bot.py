@@ -10,7 +10,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import threading
 
 # ===== CONFIG =====
-BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
+BOT_TOKEN = "8345172518:AAHahPKnJZwKZ-SIp97vBtNyMyyRXZ-Gw7M"
 ADMIN_ID = 8451049817
 
 LIKE_API_KEY = "7d01eb30166546130c171b26eecee191"
