@@ -4,7 +4,7 @@ import sqlite3
 import hmac
 import hashlib
 import os
-import asyncio
+import threading
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -25,10 +25,9 @@ RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
 
-
-APP_URL = "https://smm-production-3fc3.up.railway.app"
-
+# ===== INIT =====
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
+app = Flask(__name__)
 
 # ===== DB =====
 def db():
@@ -69,7 +68,7 @@ def update_balance(tg, amt):
     conn.commit()
     conn.close()
 
-# ===== PAYMENT =====
+# ===== SAVE =====
 def payment_exists(pid):
     conn = db()
     cur = conn.cursor()
@@ -97,27 +96,21 @@ user_steps = {}
 
 def main_menu():
     return ReplyKeyboardMarkup(
-        [
-            ["📊 Dashboard", "💳 Add Funds"],
-            ["🚀 Services", "📦 My Orders"],
-            ["🆘 Support"]
-        ],
+        [["📊 Dashboard", "💳 Add Funds"],
+         ["🚀 Services", "🆘 Support"]],
         resize_keyboard=True
     )
 
 def services_menu():
     return ReplyKeyboardMarkup(
-        [
-            ["👍 Instagram Likes"],
-            ["💬 Instagram Comments"],
-            ["⬅️ Back"]
-        ],
+        [["👍 Instagram Likes", "💬 Instagram Comments"],
+         ["⬅️ Back"]],
         resize_keyboard=True
     )
 
 def confirm_kb():
     return ReplyKeyboardMarkup(
-        [["✅ Place Order", "❌ Cancel"]],
+        [["✅ Confirm", "❌ Cancel"]],
         resize_keyboard=True
     )
 
@@ -126,52 +119,39 @@ BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
 # ===== TELEGRAM =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
     bal = get_balance(tg)
 
     msg = f"""
-✨ *Welcome to Elite SMM Panel*
+✨ Welcome to Elite SMM Panel
 
-🚀 Boost Your Social Media Instantly
-
-━━━━━━━━━━━━━━━
-👤 ID: `{tg}`
+👤 ID: {tg}
 💰 Balance: ₹{bal}
-━━━━━━━━━━━━━━━
 
-⚡ Fast • Secure • Trusted
+🚀 Fast | Secure | Trusted
 """
+    await update.message.reply_text(msg, reply_markup=main_menu())
 
-    await update.message.reply_text(msg, reply_markup=main_menu(), parse_mode="Markdown")
-
-# ===== HANDLER =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
     text = update.message.text
     step = user_steps.get(tg)
 
-    # BACK
     if text == "⬅️ Back":
         user_steps[tg] = None
-        return await update.message.reply_text("Main Menu", reply_markup=main_menu())
+        return await update.message.reply_text("Menu", reply_markup=main_menu())
 
-    # DASHBOARD
     if text == "📊 Dashboard":
-        return await update.message.reply_text(
-            f"👤 ID: `{tg}`\n💰 Balance: ₹{get_balance(tg)}",
-            parse_mode="Markdown"
-        )
+        return await update.message.reply_text(f"💰 Balance: ₹{get_balance(tg)}")
 
-    # ADD FUNDS
     if text == "💳 Add Funds":
         user_steps[tg] = "amount"
         return await update.message.reply_text("Enter amount:", reply_markup=BACK)
 
     if step == "amount":
         if not text.isdigit():
-            return await update.message.reply_text("Enter valid amount")
+            return await update.message.reply_text("Invalid amount")
 
         amt = int(text)
 
@@ -182,21 +162,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
 
         user_steps[tg] = None
-        return await update.message.reply_text(f"💳 Pay here:\n{link['short_url']}")
+        return await update.message.reply_text(f"💳 Pay:\n{link['short_url']}")
 
-    # SERVICES
     if text == "🚀 Services":
         return await update.message.reply_text("Select service:", reply_markup=services_menu())
 
-    # LIKES
+    # ===== LIKES =====
     if "👍 Instagram Likes" in text:
         user_steps[tg] = "l1"
-        return await update.message.reply_text("Send post link:", reply_markup=BACK)
+        return await update.message.reply_text("Send link:", reply_markup=BACK)
 
     if step == "l1":
         context.user_data["link"] = text
         user_steps[tg] = "l2"
-        return await update.message.reply_text("Enter quantity (Min 50):")
+        return await update.message.reply_text("Quantity:")
 
     if step == "l2":
         qty = int(text)
@@ -206,16 +185,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         user_steps[tg] = "l3"
-        return await update.message.reply_text(
-            f"🧾 Order:\n{qty} Likes\n₹{price}",
-            reply_markup=confirm_kb()
-        )
+        return await update.message.reply_text(f"{qty} Likes = ₹{price}", reply_markup=confirm_kb())
 
     if step == "l3":
-        if text == "❌ Cancel":
-            user_steps[tg] = None
-            return await update.message.reply_text("Cancelled", reply_markup=main_menu())
-
         if get_balance(tg) < context.user_data["price"]:
             return await update.message.reply_text("Low balance")
 
@@ -229,85 +201,61 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
-            save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
             await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
 
         user_steps[tg] = None
 
-    # COMMENTS
-    if "💬 Instagram Comments" in text:
-        user_steps[tg] = "c1"
-        return await update.message.reply_text("Send post link:", reply_markup=BACK)
-
-    if step == "c1":
-        context.user_data["link"] = text
-        user_steps[tg] = "c2"
-        return await update.message.reply_text("Send comments (line by line):")
-
-    if step == "c2":
-        comments = text
-        qty = len(comments.split("\n"))
-        price = (qty / 1000) * 250
-
-        context.user_data["comments"] = comments
-        context.user_data["price"] = price
-
-        user_steps[tg] = "c3"
-        return await update.message.reply_text(
-            f"{qty} Comments = ₹{price}",
-            reply_markup=confirm_kb()
-        )
-
-    if step == "c3":
-        if get_balance(tg) < context.user_data["price"]:
-            return await update.message.reply_text("Low balance")
-
-        res = requests.post(COMMENT_API_URL, data={
-            "key": COMMENT_API_KEY,
-            "action": "add",
-            "service": COMMENT_SERVICE_ID,
-            "link": context.user_data["link"],
-            "comments": context.user_data["comments"]
-        }).json()
-
-        if "order" in res:
-            update_balance(tg, -context.user_data["price"])
-            await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
-
-        user_steps[tg] = None
-
-    # SUPPORT
+    # ===== SUPPORT =====
     if text == "🆘 Support":
-        return await update.message.reply_text(
-            "🆘 Contact Admin:\n@yourusername"
-        )
+        return await update.message.reply_text("Contact: @yourusername")
 
-# ===== ADD HANDLERS =====
+# ===== HANDLERS =====
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-# ===== FLASK =====
-app = Flask(__name__)
+# ===== RAZORPAY WEBHOOK =====
+@app.route("/webhook", methods=["POST"])
+def razorpay_webhook():
+    print("🔥 PAYMENT WEBHOOK HIT")
 
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, telegram_app.bot)
+    body = request.data
+    sig = request.headers.get("X-Razorpay-Signature")
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    gen = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
 
-    loop.run_until_complete(telegram_app.initialize())
-    loop.run_until_complete(telegram_app.process_update(update))
+    if not hmac.compare_digest(gen, sig):
+        return {"status": "invalid"}, 400
 
-    return "ok"
+    data = request.json
 
-# ===== START =====
-if __name__ == "__main__":
-    requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
-    requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={APP_URL}/{BOT_TOKEN}")
+    if data.get("event") == "payment_link.paid":
+        entity = data["payload"]["payment_link"]["entity"]
 
-    print("BOT RUNNING")
+        tg = int(entity["notes"]["telegram_id"])
+        amt = entity["amount_paid"] / 100
+        pid = entity["id"]
 
+        if payment_exists(pid):
+            return {"status": "duplicate"}
+
+        update_balance(tg, amt)
+        save_payment(pid, tg, amt)
+
+        requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            params={"chat_id": tg, "text": f"✅ ₹{amt} added"}
+        )
+
+    return {"status": "ok"}
+
+# ===== RUN BOTH =====
+def run_bot():
+    telegram_app.run_polling()
+
+def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_bot).start()
+    run_flask()
