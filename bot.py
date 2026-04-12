@@ -296,7 +296,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━
 💰 Balance: ₹{get_balance(tg)}
 ━━━━━━━━━━━━━━━
-"""
+
 
     return await update.message.reply_text(msg, parse_mode="Markdown")
 
