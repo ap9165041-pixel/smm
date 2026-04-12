@@ -276,24 +276,25 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if r and r[0] == 1:
         return await update.message.reply_text("🚫 You are banned")
 
+    # BACK
     if text == "⬅️ Back":
         user_steps[tg] = None
         return await update.message.reply_text("Main Menu", reply_markup=main_menu())
 
-if text == "👤 Account":
-    user = update.message.from_user
+    # ===== ACCOUNT =====
+    if text == "👤 Account":
+        user = update.message.from_user
 
-    name = user.first_name or "User"
-    username = f"@{user.username}" if user.username else "N/A"
+        name = user.first_name or "User"
+        username = f"@{user.username}" if user.username else "N/A"
 
-    # 📦 TOTAL ORDERS COUNT
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM orders WHERE telegram_id=?", (tg,))
-    total_orders = cur.fetchone()[0]
-    conn.close()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM orders WHERE telegram_id=?", (tg,))
+        total_orders = cur.fetchone()[0]
+        conn.close()
 
-    msg = f"""
+        msg = f"""
 👤 *User Profile*
 
 🆔 ID: `{tg}`
@@ -305,9 +306,9 @@ if text == "👤 Account":
 📦 Orders: {total_orders}
 ━━━━━━━━━━━━━━━
 """
+        return await update.message.reply_text(msg, parse_mode="Markdown")
 
-    return await update.message.reply_text(msg, parse_mode="Markdown")
-
+    # ===== SUPPORT =====
     if text == "🎧 Support":
         return await update.message.reply_text("Contact Admin: @ayushpatelh")
 
@@ -324,7 +325,11 @@ if text == "👤 Account":
 
         msg = "📦 Orders:\n\n"
         for o in rows:
-            status = check_order_status(o[0], LIKE_API_URL, LIKE_API_KEY)
+            if o[1] == "likes":
+                status = check_order_status(o[0], LIKE_API_URL, LIKE_API_KEY)
+            else:
+                status = check_order_status(o[0], COMMENT_API_URL, COMMENT_API_KEY)
+
             st = status.get("status", "Unknown") if status else "Unknown"
             msg += f"{o[0]} | {o[1]} | {o[2]} | {st}\n"
 
@@ -396,7 +401,52 @@ if text == "👤 Account":
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
             save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
-            await update.message.reply_text("Order placed", reply_markup=main_menu())
+            await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
+
+        user_steps[tg] = None
+
+    # ===== COMMENTS =====
+    if text.startswith("💬 Comments"):
+        user_steps[tg] = "c1"
+        return await update.message.reply_text("Send link:", reply_markup=BACK)
+
+    if step == "c1":
+        context.user_data["link"] = text
+        user_steps[tg] = "c2"
+        return await update.message.reply_text("Send comments:")
+
+    if step == "c2":
+        comments = text
+        qty = len(comments.split("\n"))
+        price = (qty / 1000) * 250
+
+        context.user_data["comments"] = comments
+        context.user_data["qty"] = qty
+        context.user_data["price"] = price
+
+        user_steps[tg] = "c3"
+        return await update.message.reply_text(f"{qty} Comments = ₹{price}", reply_markup=confirm_kb())
+
+    if step == "c3":
+        if text == "❌ Cancel":
+            user_steps[tg] = None
+            return await update.message.reply_text("Cancelled", reply_markup=main_menu())
+
+        if get_balance(tg) < context.user_data["price"]:
+            return await update.message.reply_text("Low balance")
+
+        res = requests.post(COMMENT_API_URL, data={
+            "key": COMMENT_API_KEY,
+            "action": "add",
+            "service": COMMENT_SERVICE_ID,
+            "link": context.user_data["link"],
+            "comments": context.user_data["comments"]
+        }).json()
+
+        if "order" in res:
+            update_balance(tg, -context.user_data["price"])
+            save_order(res["order"], tg, "comments", context.user_data["link"], context.user_data["qty"])
+            await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
 
         user_steps[tg] = None
 
