@@ -205,41 +205,60 @@ async def profit_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = db()
     cur = conn.cursor()
 
+    # 💰 TOTAL RECHARGE
     cur.execute("SELECT SUM(amount) FROM payments")
     total_recharge = cur.fetchone()[0] or 0
 
+    # 👤 TOTAL USERS
     cur.execute("SELECT COUNT(*) FROM users")
     total_users = cur.fetchone()[0]
 
+    # 📦 TOTAL ORDERS
     cur.execute("SELECT COUNT(*) FROM orders")
     total_orders = cur.fetchone()[0]
 
+    # 📊 GET ALL ORDERS
     cur.execute("SELECT service, quantity FROM orders")
     orders = cur.fetchall()
 
+    # 💸 REAL COST CALCULATION
     total_cost = 0
+    likes_cost = 0
+    comments_cost = 0
+
     for service, qty in orders:
         if service == "likes":
-            total_cost += (qty / 1000) * 29
-        elif service == "comments":
-            total_cost += (qty / 1000) * 250
+            cost = (qty / 1000) * 2   # 🔥 REAL COST
+            likes_cost += cost
+            total_cost += cost
 
+        elif service == "comments":
+            cost = (qty / 1000) * 120  # 🔥 REAL COST
+            comments_cost += cost
+            total_cost += cost
+
+    # 💵 PROFIT
     profit = total_recharge - total_cost
 
     conn.close()
 
     msg = f"""
-📈 Profit Dashboard
+📈 *Profit Dashboard (Real Cost)*
 
-💰 Recharge: ₹{round(total_recharge,2)}
-📉 Cost: ₹{round(total_cost,2)}
-💸 Profit: ₹{round(profit,2)}
+💰 *Total Recharge:* ₹{round(total_recharge,2)}
+📉 *Total Cost:* ₹{round(total_cost,2)}
+💸 *Net Profit:* ₹{round(profit,2)}
 
 ━━━━━━━━━━━━━━━
-👤 Users: {total_users}
-📦 Orders: {total_orders}
+👍 Likes Cost: ₹{round(likes_cost,2)}
+💬 Comments Cost: ₹{round(comments_cost,2)}
+
+━━━━━━━━━━━━━━━
+👤 Total Users: {total_users}
+📦 Total Orders: {total_orders}
 """
-    await update.message.reply_text(msg)
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 # ===== MAIN HANDLER =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -261,8 +280,25 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_steps[tg] = None
         return await update.message.reply_text("Main Menu", reply_markup=main_menu())
 
-    if text == "👤 Account":
-        return await update.message.reply_text(f"💰 Balance: ₹{get_balance(tg)}")
+   if text == "👤 Account":
+    user = update.message.from_user
+
+    name = user.first_name or "User"
+    username = f"@{user.username}" if user.username else "N/A"
+
+    msg = f"""
+👤 *User Profile*
+
+🆔 ID: `{tg}`
+👤 Name: {name}
+🔗 Username: {username}
+
+━━━━━━━━━━━━━━━
+💰 Balance: ₹{get_balance(tg)}
+━━━━━━━━━━━━━━━
+"""
+
+    return await update.message.reply_text(msg, parse_mode="Markdown")
 
     if text == "🎧 Support":
         return await update.message.reply_text("Contact Admin: @ayushpatelh")
