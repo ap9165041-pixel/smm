@@ -30,7 +30,7 @@ APP_URL = "https://smm-production-3fc3.up.railway.app" # 👈 CHANGE THIS
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
-# ===== DATABASE =====
+# ===== DB =====
 def db():
     return sqlite3.connect("users.db", check_same_thread=False)
 
@@ -100,8 +100,8 @@ user_steps = {}
 def main_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👤 My Account", "💰 Add Funds"],
-            ["🛒 Services", "📦 My Orders"],
+            ["👤 Account", "💰 Recharge"],
+            ["📦 Orders", "🛒 Services"],
             ["🎧 Support"]
         ],
         resize_keyboard=True
@@ -110,7 +110,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 Instagram Likes", "💬 Instagram Comments"],
+            ["👍 Likes (₹29/1000)", "💬 Comments (₹250/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
@@ -129,19 +129,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bal = get_balance(tg)
 
     msg = f"""
-🔥 *Welcome to Premium SMM Panel*
+🔥 Welcome to Premium SMM Panel
 
-🚀 Fast Delivery  
-💎 Best Prices  
-⚡ 24/7 Automated  
+🚀 Fast Delivery
+💎 Cheap Rates
+⚡ Auto System
 
 ━━━━━━━━━━━━━━━
-💰 *Balance:* ₹{bal}
+💰 Balance: ₹{bal}
 ━━━━━━━━━━━━━━━
 
-👇 Choose an option below
+👇 Use menu below
 """
-    await update.message.reply_text(msg, reply_markup=main_menu(), parse_mode="Markdown")
+    await update.message.reply_text(msg, reply_markup=main_menu())
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
@@ -150,28 +150,22 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "⬅️ Back":
         user_steps[tg] = None
-        return await update.message.reply_text("🏠 Main Menu", reply_markup=main_menu())
+        return await update.message.reply_text("Main Menu", reply_markup=main_menu())
 
-    if text == "👤 My Account":
-        return await update.message.reply_text(
-            f"👤 *Account Info*\n\n💰 Balance: ₹{get_balance(tg)}",
-            parse_mode="Markdown"
-        )
+    if text == "👤 Account":
+        return await update.message.reply_text(f"💰 Balance: ₹{get_balance(tg)}")
 
     if text == "🎧 Support":
-        return await update.message.reply_text(
-            "🎧 *Support*\n\nContact: @yourusername",
-            parse_mode="Markdown"
-        )
+        return await update.message.reply_text("Contact Admin: @yourusername")
 
-    # ===== ADD FUNDS =====
-    if text == "💰 Add Funds":
+    # ===== RECHARGE =====
+    if text == "💰 Recharge":
         user_steps[tg] = "amount"
         return await update.message.reply_text("Enter amount:", reply_markup=BACK)
 
     if step == "amount":
         if not text.isdigit():
-            return await update.message.reply_text("Enter valid amount")
+            return await update.message.reply_text("Enter valid number")
 
         amt = int(text)
 
@@ -182,16 +176,16 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
 
         user_steps[tg] = None
-        return await update.message.reply_text(f"💳 Pay here:\n{link['short_url']}")
+        return await update.message.reply_text(link['short_url'])
 
     # ===== SERVICES =====
     if text == "🛒 Services":
-        return await update.message.reply_text("Select Service:", reply_markup=services_menu())
+        return await update.message.reply_text("Choose:", reply_markup=services_menu())
 
-    # ===== LIKES =====
-    if "👍 Instagram Likes" in text:
+    # ===== LIKE (UNCHANGED LOGIC) =====
+    if "👍 Likes" in text:
         user_steps[tg] = "l1"
-        return await update.message.reply_text("Send post link:", reply_markup=BACK)
+        return await update.message.reply_text("Send link:", reply_markup=BACK)
 
     if step == "l1":
         context.user_data["link"] = text
@@ -200,11 +194,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if step == "l2":
         if not text.isdigit():
-            return await update.message.reply_text("Invalid number")
+            return await update.message.reply_text("Invalid")
 
         qty = int(text)
         if qty < 50:
-            return await update.message.reply_text("Minimum 50")
+            return await update.message.reply_text("Minimum 50 likes")
 
         price = (qty / 1000) * 29
 
@@ -213,7 +207,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_steps[tg] = "l3"
         return await update.message.reply_text(
-            f"📦 Order:\n{qty} Likes\n💰 ₹{round(price,2)}\nConfirm?",
+            f"{qty} Likes = ₹{round(price,2)}\nConfirm?",
             reply_markup=confirm_kb()
         )
 
@@ -236,22 +230,21 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
             save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
-
-            await update.message.reply_text("✅ Order Placed!", reply_markup=main_menu())
+            await update.message.reply_text("✅ Likes Order Placed", reply_markup=main_menu())
         else:
-            await update.message.reply_text("❌ Failed")
+            await update.message.reply_text("❌ Failed", reply_markup=main_menu())
 
         user_steps[tg] = None
 
-    # ===== COMMENTS =====
-    if "💬 Instagram Comments" in text:
+    # ===== COMMENTS (UNCHANGED LOGIC) =====
+    if "💬 Comments" in text:
         user_steps[tg] = "c1"
         return await update.message.reply_text("Send link:", reply_markup=BACK)
 
     if step == "c1":
         context.user_data["link"] = text
         user_steps[tg] = "c2"
-        return await update.message.reply_text("Send comments (each line new):")
+        return await update.message.reply_text("Send comments (line by line):")
 
     if step == "c2":
         comments = [c for c in text.split("\n") if c.strip()]
@@ -291,10 +284,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "order" in res:
             update_balance(tg, -context.user_data["price"])
             save_order(res["order"], tg, "comments", context.user_data["link"], context.user_data["qty"])
-
-            await update.message.reply_text("✅ Order Placed!", reply_markup=main_menu())
+            await update.message.reply_text("✅ Comments Order Placed", reply_markup=main_menu())
         else:
-            await update.message.reply_text("❌ Failed")
+            await update.message.reply_text("❌ Failed", reply_markup=main_menu())
 
         user_steps[tg] = None
 
