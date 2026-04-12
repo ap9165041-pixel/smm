@@ -98,7 +98,7 @@ def main_menu():
     return ReplyKeyboardMarkup(
         [
             ["📊 Dashboard", "💳 Add Funds"],
-            ["🚀 Services", "📦 My Orders"],
+            ["🚀 Services", "📦 Orders"],
             ["🆘 Support"]
         ],
         resize_keyboard=True
@@ -107,18 +107,14 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 Instagram Likes"],
-            ["💬 Instagram Comments"],
+            ["👍 Instagram Likes", "💬 Instagram Comments"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
     )
 
 def confirm_kb():
-    return ReplyKeyboardMarkup(
-        [["✅ Place Order", "❌ Cancel"]],
-        resize_keyboard=True
-    )
+    return ReplyKeyboardMarkup([["✅ Confirm", "❌ Cancel"]], resize_keyboard=True)
 
 BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
 
@@ -131,13 +127,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bal = get_balance(tg)
 
     msg = f"""
-✨ Welcome to Elite SMM Panel
+✨ *Elite SMM Panel*
 
-👤 ID: {tg}
+👤 ID: `{tg}`
 💰 Balance: ₹{bal}
-"""
 
-    await update.message.reply_text(msg, reply_markup=main_menu())
+⚡ Fast • Secure • Trusted
+"""
+    await update.message.reply_text(msg, reply_markup=main_menu(), parse_mode="Markdown")
 
 # ===== HANDLER =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -150,7 +147,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Main Menu", reply_markup=main_menu())
 
     if text == "📊 Dashboard":
-        return await update.message.reply_text(f"💰 ₹{get_balance(tg)}")
+        return await update.message.reply_text(
+            f"👤 ID: `{tg}`\n💰 Balance: ₹{get_balance(tg)}",
+            parse_mode="Markdown"
+        )
 
     # ===== ADD FUNDS =====
     if text == "💳 Add Funds":
@@ -171,7 +171,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
 
         user_steps[tg] = None
-        return await update.message.reply_text(f"💳 Pay:\n{link['short_url']}")
+        return await update.message.reply_text(
+            f"💳 *Complete Payment*\n\nAmount: ₹{amt}\n\n👉 {link['short_url']}",
+            parse_mode="Markdown"
+        )
 
     # ===== SERVICES =====
     if text == "🚀 Services":
@@ -188,6 +191,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Enter quantity:")
 
     if step == "l2":
+        if not text.isdigit():
+            return await update.message.reply_text("Invalid quantity")
+
         qty = int(text)
         price = (qty / 1000) * 29
 
@@ -195,7 +201,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["price"] = price
 
         user_steps[tg] = "l3"
-        return await update.message.reply_text(f"{qty} Likes = ₹{price}", reply_markup=confirm_kb())
+        return await update.message.reply_text(
+            f"{qty} Likes = ₹{round(price,2)}",
+            reply_markup=confirm_kb()
+        )
 
     if step == "l3":
         if text == "❌ Cancel":
@@ -228,12 +237,7 @@ def telegram_webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, telegram_app.bot)
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(telegram_app.initialize())
-    loop.run_until_complete(telegram_app.process_update(update))
-
+    asyncio.run(telegram_app.process_update(update))
     return "ok"
 
 # ===== RAZORPAY WEBHOOK =====
@@ -256,21 +260,21 @@ def razorpay_webhook():
         amt = entity["amount_paid"] / 100
         pid = entity["id"]
 
-        if payment_exists(pid):
-            return {"status": "duplicate"}
+        if not payment_exists(pid):
+            update_balance(tg, amt)
+            save_payment(pid, tg, amt)
 
-        update_balance(tg, amt)
-        save_payment(pid, tg, amt)
-
-        requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            params={"chat_id": tg, "text": f"✅ ₹{amt} added"}
-        )
+            requests.get(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                params={"chat_id": tg, "text": f"✅ ₹{amt} added"}
+            )
 
     return {"status": "ok"}
 
 # ===== START =====
 if __name__ == "__main__":
+    asyncio.run(telegram_app.initialize())
+
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={APP_URL}/{BOT_TOKEN}")
 
