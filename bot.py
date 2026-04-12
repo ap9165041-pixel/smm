@@ -205,12 +205,11 @@ app = Flask(__name__)
 
 # ✅ FIXED TELEGRAM WEBHOOK (NO EVENT LOOP BUG)
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-async def telegram_webhook():
+def telegram_webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, telegram_app.bot)
 
-    await telegram_app.initialize()
-    await telegram_app.process_update(update)
+    asyncio.run(telegram_app.process_update(update))
 
     return "ok"
 
