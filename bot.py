@@ -28,6 +28,7 @@ WEBHOOK_SECRET = "ayush@123"
 
 APP_URL = "https://smm-production-3fc3.up.railway.app" # 👈 CHANGE THIS
 
+
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
 # ===== DB =====
@@ -110,7 +111,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 Youtube Likes (₹29/1000)", "💬 Youtube Comments (₹250/1000)"],
+            ["👍 Likes (₹29/1000)", "💬 Comments (₹250/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
@@ -132,8 +133,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔥 Welcome to Premium SMM Panel
 
 🚀 Fast Delivery
-💎 Cheap Rates
-⚡ Auto System
+💎 Cheapest Rates
+⚡ Instant Service
 
 ━━━━━━━━━━━━━━━
 💰 Balance: ₹{bal}
@@ -182,8 +183,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🛒 Services":
         return await update.message.reply_text("Choose:", reply_markup=services_menu())
 
-    # ===== LIKE (UNCHANGED LOGIC) =====
-    if "👍 Likes" in text:
+    # ===== LIKE =====
+    if text.startswith("👍 Likes"):
         user_steps[tg] = "l1"
         return await update.message.reply_text("Send link:", reply_markup=BACK)
 
@@ -236,8 +237,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_steps[tg] = None
 
-    # ===== COMMENTS (UNCHANGED LOGIC) =====
-    if "💬 Comments" in text:
+    # ===== COMMENTS =====
+    if text.startswith("💬 Comments"):
         user_steps[tg] = "c1"
         return await update.message.reply_text("Send link:", reply_markup=BACK)
 
@@ -334,9 +335,19 @@ def razorpay_webhook():
         update_balance(tg, amt)
         save_payment(pid, tg, amt)
 
+        # USER MESSAGE
         requests.get(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             params={"chat_id": tg, "text": f"✅ ₹{amt} added"}
+        )
+
+        # ADMIN MESSAGE
+        requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            params={
+                "chat_id": ADMIN_ID,
+                "text": f"💰 New Payment\n\n👤 User: {tg}\n💵 Amount: ₹{amt}"
+            }
         )
 
     return {"status": "ok"}
