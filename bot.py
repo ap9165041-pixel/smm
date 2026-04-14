@@ -339,7 +339,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Choose:", reply_markup=services_menu())
 
       # ===== LIKES =====
-    if text.startswith("👍 Likes"):
+    if text.startswith("👍 NON Drop Likes"):
         user_steps[tg] = "l1"
         return await update.message.reply_text("Send link:", reply_markup=BACK)
 
