@@ -338,7 +338,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🛒 Services":
         return await update.message.reply_text("Choose:", reply_markup=services_menu())
 
-    # ===== LIKES =====
+      # ===== LIKES =====
     if text.startswith("👍 Likes"):
         user_steps[tg] = "l1"
         return await update.message.reply_text("Send link:", reply_markup=BACK)
@@ -353,6 +353,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("Invalid")
 
         qty = int(text)
+        if qty <= 0:
+            return await update.message.reply_text("Invalid quantity")
+
         price = (qty / 1000) * 29
 
         context.user_data["qty"] = qty
@@ -362,100 +365,35 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(f"{qty} Likes = ₹{price}", reply_markup=confirm_kb())
 
     if step == "l3":
-      if text == "❌ Cancel":
+        if text != "✅ Confirm":
+            user_steps[tg] = None
+            context.user_data.clear()
+            return await update.message.reply_text("Cancelled", reply_markup=main_menu())
+
+        if get_balance(tg) < context.user_data["price"]:
+            return await update.message.reply_text("Low balance")
+
+        res = requests.post(LIKE_API_URL, data={
+            "key": LIKE_API_KEY,
+            "action": "add",
+            "service": LIKE_SERVICE_ID,
+            "link": context.user_data["link"],
+            "quantity": context.user_data["qty"]
+        }).json()
+
+        if "order" in res:
+            update_balance(tg, -context.user_data["price"])
+            save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
+
+            requests.get(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                params={"chat_id": ADMIN_ID, "text": f"New LIKE order from {tg}"}
+            )
+
+            await update.message.reply_text("Order placed", reply_markup=main_menu())
+
         user_steps[tg] = None
         context.user_data.clear()
-        return await update.message.reply_text("Cancelled", reply_markup=main_menu())
-
-     if text != "✅ Confirm":
-        return
-
-     if get_balance(tg) < context.user_data["price"]:
-        user_steps[tg] = None
-        context.user_data.clear()
-        return await update.message.reply_text("Low balance", reply_markup=main_menu())
-
-      res = requests.post(LIKE_API_URL, data={
-        "key": LIKE_API_KEY,
-        "action": "add",
-        "service": LIKE_SERVICE_ID,
-        "link": context.user_data["link"],
-        "quantity": context.user_data["qty"]
-    }).json()
-
-    if "order" in res:
-        update_balance(tg, -context.user_data["price"])
-        save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
-
-        # ✅ ADMIN NOTIFICATION
-        requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            params={"chat_id": ADMIN_ID, "text": f"📦 New LIKE Order\nUser: {tg}\nQty: {context.user_data['qty']}"}
-        )
-
-        await update.message.reply_text("Order placed", reply_markup=main_menu())
-
-    user_steps[tg] = None
-    context.user_data.clear()
-
-    # ===== COMMENTS =====
-    if text.startswith("💬 Comments"):
-        user_steps[tg] = "c1"
-        return await update.message.reply_text("Send link:", reply_markup=BACK)
-
-    if step == "c1":
-        context.user_data["link"] = text
-        user_steps[tg] = "c2"
-        return await update.message.reply_text("Send comments:")
-
-    if step == "c2":
-        comments = text
-        qty = len(comments.split("\n"))
-        price = (qty / 1000) * 250
-
-        context.user_data["comments"] = comments
-        context.user_data["qty"] = qty
-        context.user_data["price"] = price
-
-        user_steps[tg] = "c3"
-        return await update.message.reply_text(f"{qty} Comments = ₹{price}", reply_markup=confirm_kb())
-
-if step == "c3":
-    if text == "❌ Cancel":
-        user_steps[tg] = None
-        context.user_data.clear()
-        return await update.message.reply_text("Cancelled", reply_markup=main_menu())
-
-    if text != "✅ Confirm":
-        return
-
-    if get_balance(tg) < context.user_data["price"]:
-        user_steps[tg] = None
-        context.user_data.clear()
-        return await update.message.reply_text("Low balance", reply_markup=main_menu())
-
-    res = requests.post(COMMENT_API_URL, data={
-        "key": COMMENT_API_KEY,
-        "action": "add",
-        "service": COMMENT_SERVICE_ID,
-        "link": context.user_data["link"],
-        "comments": context.user_data["comments"]
-    }).json()
-
-    if "order" in res:
-        update_balance(tg, -context.user_data["price"])
-        save_order(res["order"], tg, "comments", context.user_data["link"], context.user_data["qty"])
-
-        # ✅ ADMIN NOTIFICATION
-        requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            params={"chat_id": ADMIN_ID, "text": f"💬 New COMMENT Order\nUser: {tg}\nQty: {context.user_data['qty']}"}
-        )
-
-        await update.message.reply_text("Order placed", reply_markup=main_menu())
-
-    user_steps[tg] = None
-    context.user_data.clear()
     
 # ===== HANDLERS =====
 telegram_app.add_handler(CommandHandler("start", start))
