@@ -394,6 +394,89 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_steps[tg] = None
         context.user_data.clear()
+        # ===== COMMENTS =====
+if text.startswith("💬 Comments"):
+    user_steps[tg] = "c1"
+    return await update.message.reply_text("Send link:", reply_markup=BACK)
+
+# Step 1: Link
+if step == "c1":
+    if "http" not in text:
+        return await update.message.reply_text("Invalid link")
+
+    context.user_data["link"] = text
+    user_steps[tg] = "c2"
+    return await update.message.reply_text("Send comments (one per line):")
+
+# Step 2: Comments
+if step == "c2":
+    comments_list = text.strip().split("\n")
+
+    # remove empty lines
+    comments_list = [c.strip() for c in comments_list if c.strip()]
+
+    if len(comments_list) == 0:
+        return await update.message.reply_text("No valid comments")
+
+    if len(comments_list) > 1000:
+        return await update.message.reply_text("Max 1000 comments allowed")
+
+    qty = len(comments_list)
+    price = (qty / 1000) * 250
+
+    context.user_data["comments"] = "\n".join(comments_list)
+    context.user_data["qty"] = qty
+    context.user_data["price"] = price
+
+    user_steps[tg] = "c3"
+    return await update.message.reply_text(
+        f"{qty} Comments = ₹{price}",
+        reply_markup=confirm_kb()
+    )
+
+# Step 3: Confirm
+if step == "c3":
+    if text != "✅ Confirm":
+        user_steps[tg] = None
+        context.user_data.clear()
+        return await update.message.reply_text("Cancelled", reply_markup=main_menu())
+
+    if get_balance(tg) < context.user_data["price"]:
+        return await update.message.reply_text("Low balance")
+
+    res = requests.post(COMMENT_API_URL, data={
+        "key": COMMENT_API_KEY,
+        "action": "add",
+        "service": COMMENT_SERVICE_ID,
+        "link": context.user_data["link"],
+        "comments": context.user_data["comments"]
+    }).json()
+
+    if "order" in res:
+        update_balance(tg, -context.user_data["price"])
+        save_order(
+            res["order"],
+            tg,
+            "comments",
+            context.user_data["link"],
+            context.user_data["qty"]
+        )
+
+        requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            params={"chat_id": ADMIN_ID, "text": f"New COMMENT order from {tg}"}
+        )
+
+        await update.message.reply_text(
+            f"✅ Order placed\nID: {res['order']}",
+            reply_markup=main_menu()
+        )
+    else:
+        await update.message.reply_text("❌ Order failed")
+
+    user_steps[tg] = None
+    context.user_data.clear()
+    
     
 # ===== HANDLERS =====
 telegram_app.add_handler(CommandHandler("start", start))
