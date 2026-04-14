@@ -361,21 +361,21 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_steps[tg] = "l3"
         return await update.message.reply_text(f"{qty} Likes = ₹{price}", reply_markup=confirm_kb())
 
- if step == "l3":
-    if text == "❌ Cancel":
+    if step == "l3":
+      if text == "❌ Cancel":
         user_steps[tg] = None
         context.user_data.clear()
         return await update.message.reply_text("Cancelled", reply_markup=main_menu())
 
-    if text != "✅ Confirm":
+     if text != "✅ Confirm":
         return
 
-    if get_balance(tg) < context.user_data["price"]:
+     if get_balance(tg) < context.user_data["price"]:
         user_steps[tg] = None
         context.user_data.clear()
         return await update.message.reply_text("Low balance", reply_markup=main_menu())
 
-    res = requests.post(LIKE_API_URL, data={
+      res = requests.post(LIKE_API_URL, data={
         "key": LIKE_API_KEY,
         "action": "add",
         "service": LIKE_SERVICE_ID,
