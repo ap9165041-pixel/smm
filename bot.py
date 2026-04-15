@@ -126,7 +126,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 NON Drop Likes (₹29/1000)", "💬 Comments (₹250/1000)"],
+            ["👍 NON Drop Likes (₹39/1000)", "💬 Comments (₹250/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
@@ -239,8 +239,8 @@ async def profit_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for service, qty in orders:
         # SELL PRICE (your price)
         if service == "likes":
-            sell = (qty / 1000) * 29
-            cost = (qty / 1000) * 2   # ✅ REAL COST
+            sell = (qty / 1000) * 39
+            cost = (qty / 1000) * 13   # ✅ REAL COST
 
         elif service == "comments":
             sell = (qty / 1000) * 250
@@ -356,7 +356,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if qty <= 0:
             return await update.message.reply_text("Invalid quantity")
 
-        price = (qty / 1000) * 29
+        price = (qty / 1000) * 39
 
         context.user_data["qty"] = qty
         context.user_data["price"] = price
