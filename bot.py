@@ -184,6 +184,17 @@ async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(msg) 
         
+async def check_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.message.chat_id):
+        return
+
+    try:
+        tg = int(context.args[0])
+        bal = get_balance(tg)
+        await update.message.reply_text(f"🆔 {tg} Balance: ₹{bal}")
+    except:
+        await update.message.reply_text("Usage: /balance USER_ID") 
+        
 async def add_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.message.chat_id):
         return
