@@ -201,7 +201,8 @@ async def add_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Added ₹{amt} to {tg}")
     except:
         await update.message.reply_text("Usage: /addbalance USER_ID AMOUNT")
-        async def news_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def news_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.message.chat_id):
         return
 
@@ -223,13 +224,14 @@ async def add_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=u[0], text=f"📢 {msg_text}")
             success += 1
+            await asyncio.sleep(0.05)
         except:
             failed += 1
 
     await update.message.reply_text(
         f"📊 Broadcast Done\n\n✅ Sent: {success}\n❌ Failed: {failed}"
-    ) 
-
+    )
+    
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.message.chat_id):
         return
