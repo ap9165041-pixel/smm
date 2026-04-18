@@ -174,7 +174,6 @@ async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = db()
     cur = conn.cursor()
-
     cur.execute("SELECT telegram_id, balance FROM users ORDER BY balance DESC")
     rows = cur.fetchall()
     conn.close()
@@ -183,40 +182,14 @@ async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("No users found")
 
     msg = "👥 All Users:\n\n"
-
     for r in rows:
         msg += f"🆔 {r[0]} | 💰 ₹{round(r[1],2)}\n"
 
-    # Telegram limit handle
     if len(msg) > 4000:
         for i in range(0, len(msg), 4000):
             await update.message.reply_text(msg[i:i+4000])
     else:
         await update.message.reply_text(msg) 
-        async def cut_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
-
-    try:
-        tg = int(context.args[0])
-        amt = float(context.args[1])
-
-        update_balance(tg, -amt)
-
-        await update.message.reply_text(f"❌ ₹{amt} deducted from {tg}")
-    except:
-        await update.message.reply_text("Usage: /cutbalance USER_ID AMOUNT") 
-
-async def check_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
-
-    try:
-        tg = int(context.args[0])
-        bal = get_balance(tg)
-        await update.message.reply_text(f"User {tg} Balance: ₹{bal}")
-    except:
-        await update.message.reply_text("Usage: /balance USER_ID")
         
 async def add_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.message.chat_id):
