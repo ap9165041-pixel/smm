@@ -32,13 +32,6 @@ client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
 import asyncio
 
-for u in users:
-    try:
-        await context.bot.send_message(chat_id=u[0], text=f"📢 {msg_text}")
-        success += 1
-        await asyncio.sleep(0.05)  # anti flood
-    except:
-        failed += 1
 
 # ===== DB =====
 def db():
@@ -229,7 +222,7 @@ async def news_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             failed += 1
 
     await update.message.reply_text(
-        f"📊 Broadcast Done\n\n✅ Sent: {success}\n❌ Failed: {failed}"
+        f"📊 Broadcast Done\n\n✅ {success} Sent\n❌ {failed} Failed"
     )
     
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
