@@ -30,6 +30,16 @@ APP_URL = "https://smm-production-3fc3.up.railway.app" # 👈 CHANGE THIS
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
+import asyncio
+
+for u in users:
+    try:
+        await context.bot.send_message(chat_id=u[0], text=f"📢 {msg_text}")
+        success += 1
+        await asyncio.sleep(0.05)  # anti flood
+    except:
+        failed += 1
+
 # ===== DB =====
 def db():
     return sqlite3.connect("users.db", check_same_thread=False)
@@ -158,6 +168,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, reply_markup=main_menu())
 
 # ===== ADMIN COMMANDS =====
+async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.message.chat_id):
+        return
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT telegram_id, balance FROM users ORDER BY balance DESC")
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        return await update.message.reply_text("No users found")
+
+    msg = "👥 All Users:\n\n"
+
+    for r in rows:
+        msg += f"🆔 {r[0]} | 💰 ₹{round(r[1],2)}\n"
+
+    # Telegram limit handle
+    if len(msg) > 4000:
+        for i in range(0, len(msg), 4000):
+            await update.message.reply_text(msg[i:i+4000])
+    else:
+        await update.message.reply_text(msg) 
+        async def cut_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.message.chat_id):
+        return
+
+    try:
+        tg = int(context.args[0])
+        amt = float(context.args[1])
+
+        update_balance(tg, -amt)
+
+        await update.message.reply_text(f"❌ ₹{amt} deducted from {tg}")
+    except:
+        await update.message.reply_text("Usage: /cutbalance USER_ID AMOUNT") 
 
 async def check_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.message.chat_id):
@@ -180,6 +228,34 @@ async def add_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Added ₹{amt} to {tg}")
     except:
         await update.message.reply_text("Usage: /addbalance USER_ID AMOUNT")
+        async def news_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.message.chat_id):
+        return
+
+    if not context.args:
+        return await update.message.reply_text("Usage: /news your message")
+
+    msg_text = " ".join(context.args)
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT telegram_id FROM users")
+    users = cur.fetchall()
+    conn.close()
+
+    success = 0
+    failed = 0
+
+    for u in users:
+        try:
+            await context.bot.send_message(chat_id=u[0], text=f"📢 {msg_text}")
+            success += 1
+        except:
+            failed += 1
+
+    await update.message.reply_text(
+        f"📊 Broadcast Done\n\n✅ Sent: {success}\n❌ Failed: {failed}"
+    ) 
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.message.chat_id):
@@ -482,6 +558,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CommandHandler("balance", check_balance_cmd))
 telegram_app.add_handler(CommandHandler("addbalance", add_balance_cmd))
+telegram_app.add_handler(CommandHandler("user", all_users))
+telegram_app.add_handler(CommandHandler("cutbalance", cut_balance_cmd))
+telegram_app.add_handler(CommandHandler("news", news_broadcast))
 telegram_app.add_handler(CommandHandler("ban", ban_user))
 telegram_app.add_handler(CommandHandler("unban", unban_user))
 telegram_app.add_handler(CommandHandler("profit", profit_dashboard))
