@@ -183,6 +183,21 @@ async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg[i:i+4000])
     else:
         await update.message.reply_text(msg) 
+
+async def cut_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.message.chat_id):
+        return
+
+    try:
+        tg = int(context.args[0])
+        amt = float(context.args[1])
+
+        update_balance(tg, -amt)
+
+        await update.message.reply_text(f"❌ ₹{amt} deducted from {tg}")
+    except:
+        await update.message.reply_text("Usage: /cutbalance USER_ID AMOUNT")
+        
         
 async def check_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.message.chat_id):
