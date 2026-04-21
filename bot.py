@@ -16,7 +16,7 @@ ADMIN_ID = 8451049817
 
 LIKE_API_KEY = "7d01eb30166546130c171b26eecee191"
 LIKE_API_URL = "https://tntsmm.in/api/v2"
-LIKE_SERVICE_ID = "3062"
+LIKE_SERVICE_ID = "7283"
 
 COMMENT_API_KEY = "a6a2e96cd415e968918b20baa261bc4b095f36c1"
 COMMENT_API_URL = "https://smm-jupiter.com/api/v2"
@@ -129,7 +129,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 NON Drop Likes (₹39/1000)", "💬 Comments (₹250/1000)"],
+            ["👍 NON Drop Likes Instant (₹250/1000)", "💬 Comments (₹250/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
@@ -309,7 +309,7 @@ async def profit_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for service, qty in orders:
         # SELL PRICE (your price)
         if service == "likes":
-            sell = (qty / 1000) * 39
+            sell = (qty / 1000) * 250
             cost = (qty / 1000) * 13   # ✅ REAL COST
 
         elif service == "comments":
@@ -426,7 +426,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if qty <= 0:
             return await update.message.reply_text("Invalid quantity")
 
-        price = (qty / 1000) * 39
+        price = (qty / 1000) * 250
 
         context.user_data["qty"] = qty
         context.user_data["price"] = price
