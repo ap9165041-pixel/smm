@@ -403,6 +403,24 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_steps[tg] = None
         return await update.message.reply_text(link['short_url'])
+        if step == "amount":
+    if not text.isdigit():
+        return await update.message.reply_text("Invalid amount")
+
+    amt = int(text)
+    
+    # ✅ यह line add करो
+    if amt < 1000:
+        return await update.message.reply_text("⚠️ Minimum recharge ₹1000 है")
+
+    link = client.payment_link.create({
+        "amount": amt * 100,
+        "currency": "INR",
+        "notes": {"telegram_id": str(tg)}
+    })
+
+    user_steps[tg] = None
+    return await update.message.reply_text(link['short_url'])
 
     # ===== SERVICES =====
     if text == "🛒 Services":
