@@ -271,11 +271,11 @@ async def profit_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_revenue = 0
     for service, qty in orders:
         if service == "likes":
-            sell = (qty / 1000) * 250
-            cost = (qty / 1000) * 13
+            sell = (qty / 1000) * 300
+            cost = (qty / 1000) * 200
         elif service == "comments":
-            sell = (qty / 1000) * 250
-            cost = (qty / 1000) * 120
+            sell = (qty / 1000) * 400
+            cost = (qty / 1000) * 250
         else:
             sell = 0
             cost = 0
@@ -379,7 +379,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         qty = int(text)
         if qty <= 0:
             return await update.message.reply_text("Invalid quantity")
-        price = (qty / 1000) * 250
+        price = (qty / 1000) * 400
         context.user_data["qty"] = qty
         context.user_data["price"] = price
         user_steps[tg] = "l3"
@@ -432,7 +432,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(comments_list) > 1000:
             return await update.message.reply_text("Max 1000 comments allowed")
         qty = len(comments_list)
-        price = (qty / 1000) * 250
+        price = (qty / 1000) * 300
         context.user_data["comments"] = "\n".join(comments_list)
         context.user_data["qty"] = qty
         context.user_data["price"] = price
