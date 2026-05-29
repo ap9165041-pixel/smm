@@ -122,7 +122,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 NON Drop Likes Instant (₹250/1000)", "💬 Comments (₹250/1000)"],
+            ["👍 NON Drop Likes Instant (₹400/1000)", "💬 Comments (₹300/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
