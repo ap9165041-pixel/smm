@@ -11,16 +11,16 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ===== CONFIG =====
-BOT_TOKEN = "8345172518:AAHahPKnJZwKZ-SIp97vBtNyMyyRXZ-Gw7M"
+BOT_TOKEN = "8748370733:AAHmioo1yYD4GcozjnJVVsN8niakHDzmcnE"
 ADMIN_ID = 8451049817
 
 LIKE_API_KEY = "7d01eb30166546130c171b26eecee191"
 LIKE_API_URL = "https://tntsmm.in/api/v2"
 LIKE_SERVICE_ID = "7283"
 
-COMMENT_API_KEY = "a6a2e96cd415e968918b20baa261bc4b095f36c1"
-COMMENT_API_URL = "https://smm-jupiter.com/api/v2"
-COMMENT_SERVICE_ID = "13259"
+COMMENT_API_KEY = "7d01eb30166546130c171b26eecee191"
+COMMENT_API_URL = "https://tntsmm.in/api/v2"
+COMMENT_SERVICE_ID = "7406"
 
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
@@ -122,7 +122,7 @@ def main_menu():
 def services_menu():
     return ReplyKeyboardMarkup(
         [
-            ["👍 NON Drop Likes Instant (₹400/1000)", "💬 Comments (₹300/1000)"],
+            ["👍 NON Drop Likes Instant (₹400/1000)", "💬 Comments (₹400/1000)"],
             ["⬅️ Back"]
         ],
         resize_keyboard=True
@@ -432,7 +432,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(comments_list) > 1000:
             return await update.message.reply_text("Max 1000 comments allowed")
         qty = len(comments_list)
-        price = (qty / 1000) * 300
+        price = (qty / 1000) * 400
         context.user_data["comments"] = "\n".join(comments_list)
         context.user_data["qty"] = qty
         context.user_data["price"] = price
