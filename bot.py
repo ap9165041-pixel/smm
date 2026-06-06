@@ -7,7 +7,7 @@ import os
 import asyncio
 
 from flask import Flask, request
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ===== CONFIG =====
@@ -17,16 +17,35 @@ ADMIN_ID = 8451049817
 LIKE_API_KEY = "7d01eb30166546130c171b26eecee191"
 LIKE_API_URL = "https://tntsmm.in/api/v2"
 LIKE_SERVICE_ID = "7283"
+LIKE_QUANTITY = 51
 
 COMMENT_API_KEY = "7d01eb30166546130c171b26eecee191"
 COMMENT_API_URL = "https://tntsmm.in/api/v2"
 COMMENT_SERVICE_ID = "7406"
+FIXED_COMMENTS = """Crazy stunts 🔥
+Insane jump 😱
+Nice crash 💥
+Epic bro
+Too good 😎
+Full action
+Kya stunt tha
+Mast video
+Next level
+Fire gameplay 🔥
+Smooth landing
+Hard bro 💪
+Crazy jump
+OMG 😱
+Full power
+Nice try
+Cool stunt
+Badiya hai"""
 
 RAZORPAY_KEY = "rzp_live_Sc7lXEOJ2ZWjPL"
 RAZORPAY_SECRET = "KxRu3ssMBcNLTQ7LxMY0jZIQ"
 WEBHOOK_SECRET = "ayush@123"
 
-APP_URL = "https://smm-production-494a.up.railway.app"  # ✅ https:// add kiya
+APP_URL = "https://smm-production-494a.up.railway.app"
 
 client = razorpay.Client(auth=(RAZORPAY_KEY, RAZORPAY_SECRET))
 
@@ -46,11 +65,9 @@ def init_db():
 
 init_db()
 
-# ===== ADMIN CHECK =====
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-# ===== BALANCE =====
 def get_balance(tg):
     conn = db()
     cur = conn.cursor()
@@ -71,7 +88,6 @@ def update_balance(tg, amt):
     conn.commit()
     conn.close()
 
-# ===== PAYMENTS =====
 def payment_exists(pid):
     conn = db()
     cur = conn.cursor()
@@ -94,7 +110,6 @@ def save_order(order_id, tg, service, link, qty):
     conn.commit()
     conn.close()
 
-# ===== ORDER STATUS =====
 def check_order_status(order_id, api_url, api_key):
     try:
         res = requests.post(api_url, data={
@@ -106,56 +121,39 @@ def check_order_status(order_id, api_url, api_key):
     except:
         return None
 
-# ===== UI =====
+
+# ===== KEYBOARDS =====
 user_steps = {}
 
-def main_menu():
+def service_choice_kb():
     return ReplyKeyboardMarkup(
-        [
-            ["👤 Account", "💰 Recharge"],
-            ["📦 Orders", "🛒 Services"],
-            ["🎧 Support"]
-        ],
+        [["👍 Like (51)", "💬 Comments (18)"]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+def orders_balance_kb():
+    return ReplyKeyboardMarkup(
+        [["📦 My Orders", "💰 My Balance"]],
         resize_keyboard=True
     )
 
-def services_menu():
-    return ReplyKeyboardMarkup(
-        [
-            ["👍 NON Drop Likes Instant (₹400/1000)", "💬 Comments (₹400/1000)"],
-            ["⬅️ Back"]
-        ],
-        resize_keyboard=True
-    )
 
-def confirm_kb():
-    return ReplyKeyboardMarkup([["✅ Confirm", "❌ Cancel"]], resize_keyboard=True)
-
-BACK = ReplyKeyboardMarkup([["⬅️ Back"]], resize_keyboard=True)
-
-# ===== TELEGRAM =====
+# ===== HANDLERS =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
-    bal = get_balance(tg)
-    msg = f"""
-🔥 Welcome to Premium SMM Panel
-
-🚀 Fast Delivery
-💎 Cheapest Rates
-⚡ Instant Service
-
-━━━━━━━━━━━━━━━
-💰 Balance: ₹{bal}
-━━━━━━━━━━━━━━━
-"""
-    await update.message.reply_text(msg, reply_markup=main_menu())
+    get_balance(tg)
+    await update.message.reply_text(
+        "🔥 *SMM Panel Bot*\n\n📌 Post ka link bhejo, main service choose karne dunga!",
+        parse_mode="Markdown",
+        reply_markup=orders_balance_kb()
+    )
 
 # ===== ADMIN COMMANDS =====
 async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
+    if not is_admin(update.message.chat_id): return
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT telegram_id, balance FROM users ORDER BY balance DESC")
@@ -166,47 +164,37 @@ async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "👥 All Users:\n\n"
     for r in rows:
         msg += f"🆔 {r[0]} | 💰 ₹{round(r[1],2)}\n"
-    if len(msg) > 4000:
-        for i in range(0, len(msg), 4000):
-            await update.message.reply_text(msg[i:i+4000])
-    else:
-        await update.message.reply_text(msg)
+    for i in range(0, len(msg), 4000):
+        await update.message.reply_text(msg[i:i+4000])
 
 async def cut_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
+    if not is_admin(update.message.chat_id): return
     try:
-        tg = int(context.args[0])
-        amt = float(context.args[1])
+        tg = int(context.args[0]); amt = float(context.args[1])
         update_balance(tg, -amt)
         await update.message.reply_text(f"❌ ₹{amt} deducted from {tg}")
     except:
         await update.message.reply_text("Usage: /cutbalance USER_ID AMOUNT")
 
 async def check_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
+    if not is_admin(update.message.chat_id): return
     try:
         tg = int(context.args[0])
-        bal = get_balance(tg)
-        await update.message.reply_text(f"🆔 {tg} Balance: ₹{bal}")
+        await update.message.reply_text(f"🆔 {tg} Balance: ₹{get_balance(tg)}")
     except:
         await update.message.reply_text("Usage: /balance USER_ID")
 
 async def add_balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
+    if not is_admin(update.message.chat_id): return
     try:
-        tg = int(context.args[0])
-        amt = float(context.args[1])
+        tg = int(context.args[0]); amt = float(context.args[1])
         update_balance(tg, amt)
         await update.message.reply_text(f"✅ Added ₹{amt} to {tg}")
     except:
         await update.message.reply_text("Usage: /addbalance USER_ID AMOUNT")
 
 async def news_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
+    if not is_admin(update.message.chat_id): return
     if not context.args:
         return await update.message.reply_text("Usage: /news your message")
     msg_text = " ".join(context.args)
@@ -215,8 +203,7 @@ async def news_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.execute("SELECT telegram_id FROM users")
     users = cur.fetchall()
     conn.close()
-    success = 0
-    failed = 0
+    success = failed = 0
     for u in users:
         try:
             await context.bot.send_message(chat_id=u[0], text=f"📢 {msg_text}")
@@ -224,41 +211,33 @@ async def news_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(0.05)
         except:
             failed += 1
-    await update.message.reply_text(f"📊 Broadcast Done\n\n✅ {success} Sent\n❌ {failed} Failed")
+    await update.message.reply_text(f"📊 Broadcast Done\n✅ {success} Sent\n❌ {failed} Failed")
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
+    if not is_admin(update.message.chat_id): return
     try:
         tg = int(context.args[0])
-        conn = db()
-        cur = conn.cursor()
+        conn = db(); cur = conn.cursor()
         cur.execute("UPDATE users SET banned=1 WHERE telegram_id=?", (tg,))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
         await update.message.reply_text(f"🚫 User {tg} banned")
     except:
         await update.message.reply_text("Usage: /ban USER_ID")
 
 async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
+    if not is_admin(update.message.chat_id): return
     try:
         tg = int(context.args[0])
-        conn = db()
-        cur = conn.cursor()
+        conn = db(); cur = conn.cursor()
         cur.execute("UPDATE users SET banned=0 WHERE telegram_id=?", (tg,))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
         await update.message.reply_text(f"✅ User {tg} unbanned")
     except:
         await update.message.reply_text("Usage: /unban USER_ID")
 
 async def profit_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.message.chat_id):
-        return
-    conn = db()
-    cur = conn.cursor()
+    if not is_admin(update.message.chat_id): return
+    conn = db(); cur = conn.cursor()
     cur.execute("SELECT SUM(amount) FROM payments")
     total_recharge = cur.fetchone()[0] or 0
     cur.execute("SELECT COUNT(*) FROM users")
@@ -267,212 +246,159 @@ async def profit_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_orders = cur.fetchone()[0]
     cur.execute("SELECT service, quantity FROM orders")
     orders = cur.fetchall()
-    total_cost = 0
-    total_revenue = 0
+    conn.close()
+    total_cost = total_revenue = 0
     for service, qty in orders:
         if service == "likes":
-            sell = (qty / 1000) * 300
-            cost = (qty / 1000) * 200
+            total_revenue += (qty / 1000) * 400
+            total_cost += (qty / 1000) * 200
         elif service == "comments":
-            sell = (qty / 1000) * 400
-            cost = (qty / 1000) * 250
-        else:
-            sell = 0
-            cost = 0
-        total_revenue += sell
-        total_cost += cost
+            total_revenue += (qty / 1000) * 400
+            total_cost += (qty / 1000) * 250
     profit = total_revenue - total_cost
-    conn.close()
-    msg = f"""
-📈 Profit Dashboard
+    await update.message.reply_text(
+        f"📈 Profit Dashboard\n\n"
+        f"💰 Total Recharge: ₹{round(total_recharge,2)}\n"
+        f"💵 Revenue: ₹{round(total_revenue,2)}\n"
+        f"📉 Cost: ₹{round(total_cost,2)}\n"
+        f"💸 Profit: ₹{round(profit,2)}\n\n"
+        f"👤 Users: {total_users}\n📦 Orders: {total_orders}"
+    )
 
-💰 Total Recharge: ₹{round(total_recharge,2)}
-💵 Revenue: ₹{round(total_revenue,2)}
-📉 Cost: ₹{round(total_cost,2)}
-💸 Profit: ₹{round(profit,2)}
 
-━━━━━━━━━━━━━━━
-👤 Users: {total_users}
-📦 Orders: {total_orders}
-"""
-    await update.message.reply_text(msg)
-
-# ===== MAIN HANDLER =====
+# ===== MAIN MESSAGE HANDLER =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg = update.message.chat_id
-    text = update.message.text
-    step = user_steps.get(tg)
+    text = update.message.text.strip()
 
     # BAN CHECK
-    conn = db()
-    cur = conn.cursor()
+    conn = db(); cur = conn.cursor()
     cur.execute("SELECT banned FROM users WHERE telegram_id=?", (tg,))
-    r = cur.fetchone()
-    conn.close()
+    r = cur.fetchone(); conn.close()
     if r and r[0] == 1:
         return await update.message.reply_text("🚫 You are banned")
 
-    if text == "⬅️ Back":
-        user_steps[tg] = None
-        return await update.message.reply_text("Main Menu", reply_markup=main_menu())
+    step = user_steps.get(tg)
 
-    if text == "👤 Account":
-        user = update.message.from_user
-        return await update.message.reply_text(
-            f"🆔 {tg}\n👤 {user.first_name}\n💰 ₹{get_balance(tg)}")
+    # ── My Balance ──
+    if text == "💰 My Balance":
+        return await update.message.reply_text(f"💰 Balance: ₹{get_balance(tg)}", reply_markup=orders_balance_kb())
 
-    if text == "🎧 Support":
-        return await update.message.reply_text("Contact Admin: @ayushpatelh")
-
-    # ===== ORDERS =====
-    if text == "📦 Orders":
-        conn = db()
-        cur = conn.cursor()
+    # ── My Orders ──
+    if text == "📦 My Orders":
+        conn = db(); cur = conn.cursor()
         cur.execute("SELECT order_id, service, quantity FROM orders WHERE telegram_id=? ORDER BY rowid DESC LIMIT 5", (tg,))
-        rows = cur.fetchall()
-        conn.close()
+        rows = cur.fetchall(); conn.close()
         if not rows:
-            return await update.message.reply_text("No orders found")
-        msg = "📦 Orders:\n\n"
+            return await update.message.reply_text("No orders found", reply_markup=orders_balance_kb())
+        msg = "📦 Last 5 Orders:\n\n"
         for o in rows:
             status = check_order_status(o[0], LIKE_API_URL, LIKE_API_KEY)
             st = status.get("status", "Unknown") if status else "Unknown"
-            msg += f"{o[0]} | {o[1]} | {o[2]} | {st}\n"
-        return await update.message.reply_text(msg)
+            msg += f"🆔 {o[0]}\n📌 {o[1]} | Qty: {o[2]} | Status: {st}\n\n"
+        return await update.message.reply_text(msg, reply_markup=orders_balance_kb())
 
-    # ===== RECHARGE =====
-    if text == "💰 Recharge":
-        user_steps[tg] = "amount"
-        return await update.message.reply_text("Enter amount (minimum ₹1000):", reply_markup=BACK)
-
-    if step == "amount":
-        if not text.isdigit():
-            return await update.message.reply_text("❌ Invalid amount")
-        amt = int(text)
-        if amt < 1000:
-            return await update.message.reply_text("⚠️ Minimum recharge ₹1000 है")
-        link = client.payment_link.create({
-            "amount": amt * 100,
-            "currency": "INR",
-            "notes": {"telegram_id": str(tg)}
-        })
-        user_steps[tg] = None
-        return await update.message.reply_text(link['short_url'])
-
-    # ===== SERVICES =====
-    if text == "🛒 Services":
-        return await update.message.reply_text("Choose:", reply_markup=services_menu())
-
-    # ===== LIKES =====
-    if text.startswith("👍 NON Drop Likes"):
-        user_steps[tg] = "l1"
-        return await update.message.reply_text("Send link:", reply_markup=BACK)
-
-    if step == "l1":
+    # ── User sends a link → show Like/Comment choice ──
+    if "http" in text and step is None:
         context.user_data["link"] = text
-        user_steps[tg] = "l2"
-        return await update.message.reply_text("Enter quantity:")
+        user_steps[tg] = "choose_service"
+        return await update.message.reply_text(
+            "✅ Link mila!\n\nAb service choose karo:",
+            reply_markup=service_choice_kb()
+        )
 
-    if step == "l2":
-        if not text.isdigit():
-            return await update.message.reply_text("Invalid")
-        qty = int(text)
-        if qty <= 0:
-            return await update.message.reply_text("Invalid quantity")
-        price = (qty / 1000) * 400
-        context.user_data["qty"] = qty
-        context.user_data["price"] = price
-        user_steps[tg] = "l3"
-        return await update.message.reply_text(f"{qty} Likes = ₹{price}", reply_markup=confirm_kb())
-
-    if step == "l3":
-        if text != "✅ Confirm":
+    # ── Service chosen ──
+    if step == "choose_service":
+        link = context.user_data.get("link")
+        if not link:
             user_steps[tg] = None
-            context.user_data.clear()
-            return await update.message.reply_text("Cancelled", reply_markup=main_menu())
-        if get_balance(tg) < context.user_data["price"]:
-            return await update.message.reply_text("Low balance")
-        res = requests.post(LIKE_API_URL, data={
-            "key": LIKE_API_KEY,
-            "action": "add",
-            "service": LIKE_SERVICE_ID,
-            "link": context.user_data["link"],
-            "quantity": context.user_data["qty"]
-        }).json()
-        if "order" in res:
-            update_balance(tg, -context.user_data["price"])
-            save_order(res["order"], tg, "likes", context.user_data["link"], context.user_data["qty"])
-            requests.get(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                params={"chat_id": ADMIN_ID, "text": f"New LIKE order from {tg}"}
-            )
-            await update.message.reply_text("✅ Order placed", reply_markup=main_menu())
-        else:
-            await update.message.reply_text("❌ Order failed")
-        user_steps[tg] = None
-        context.user_data.clear()
-        return
+            return await update.message.reply_text("❌ Pehle link bhejo", reply_markup=orders_balance_kb())
 
-    # ===== COMMENTS =====
-    if text.startswith("💬 Comments"):
-        user_steps[tg] = "c1"
-        return await update.message.reply_text("Send link:", reply_markup=BACK)
-
-    if step == "c1":
-        if "http" not in text:
-            return await update.message.reply_text("Invalid link")
-        context.user_data["link"] = text
-        user_steps[tg] = "c2"
-        return await update.message.reply_text("Send comments (one per line):")
-
-    if step == "c2":
-        comments_list = [c.strip() for c in text.strip().split("\n") if c.strip()]
-        if len(comments_list) == 0:
-            return await update.message.reply_text("No valid comments")
-        if len(comments_list) > 1000:
-            return await update.message.reply_text("Max 1000 comments allowed")
-        qty = len(comments_list)
-        price = (qty / 1000) * 400
-        context.user_data["comments"] = "\n".join(comments_list)
-        context.user_data["qty"] = qty
-        context.user_data["price"] = price
-        user_steps[tg] = "c3"
-        return await update.message.reply_text(f"{qty} Comments = ₹{price}", reply_markup=confirm_kb())
-
-    if step == "c3":
-        if text != "✅ Confirm":
+        if text == "👍 Like (51)":
+            price = (LIKE_QUANTITY / 1000) * 400
+            bal = get_balance(tg)
             user_steps[tg] = None
+
+            if bal < price:
+                return await update.message.reply_text(
+                    f"⚠️ Low balance!\n💰 Balance: ₹{bal}\n💵 Required: ₹{price}\n\nAdmin se balance add karwao: @ayushpatelh",
+                    reply_markup=orders_balance_kb()
+                )
+
+            res = requests.post(LIKE_API_URL, data={
+                "key": LIKE_API_KEY,
+                "action": "add",
+                "service": LIKE_SERVICE_ID,
+                "link": link,
+                "quantity": LIKE_QUANTITY
+            }).json()
+
+            if "order" in res:
+                update_balance(tg, -price)
+                save_order(res["order"], tg, "likes", link, LIKE_QUANTITY)
+                requests.get(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    params={"chat_id": ADMIN_ID, "text": f"👍 New LIKE order\nUser: {tg}\nLink: {link}\nOrder ID: {res['order']}"}
+                )
+                await update.message.reply_text(
+                    f"✅ Like order placed!\n\n🆔 Order ID: {res['order']}\n📌 Qty: {LIKE_QUANTITY}\n💰 Charged: ₹{price}\n💰 Remaining: ₹{round(bal-price,2)}",
+                    reply_markup=orders_balance_kb()
+                )
+            else:
+                await update.message.reply_text(f"❌ Order failed: {res}", reply_markup=orders_balance_kb())
             context.user_data.clear()
-            return await update.message.reply_text("Cancelled", reply_markup=main_menu())
-        if get_balance(tg) < context.user_data["price"]:
-            return await update.message.reply_text("Low balance")
-        res = requests.post(COMMENT_API_URL, data={
-            "key": COMMENT_API_KEY,
-            "action": "add",
-            "service": COMMENT_SERVICE_ID,
-            "link": context.user_data["link"],
-            "comments": context.user_data["comments"]
-        }).json()
-        if "order" in res:
-            update_balance(tg, -context.user_data["price"])
-            save_order(res["order"], tg, "comments", context.user_data["link"], context.user_data["qty"])
-            requests.get(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                params={"chat_id": ADMIN_ID, "text": f"New COMMENT order from {tg}"}
-            )
-            await update.message.reply_text(f"✅ Order placed\nID: {res['order']}", reply_markup=main_menu())
+            return
+
+        elif text == "💬 Comments (18)":
+            comments_list = [c.strip() for c in FIXED_COMMENTS.strip().split("\n") if c.strip()]
+            qty = len(comments_list)
+            price = (qty / 1000) * 400
+            bal = get_balance(tg)
+            user_steps[tg] = None
+
+            if bal < price:
+                return await update.message.reply_text(
+                    f"⚠️ Low balance!\n💰 Balance: ₹{bal}\n💵 Required: ₹{price}\n\nAdmin se balance add karwao: @ayushpatelh",
+                    reply_markup=orders_balance_kb()
+                )
+
+            res = requests.post(COMMENT_API_URL, data={
+                "key": COMMENT_API_KEY,
+                "action": "add",
+                "service": COMMENT_SERVICE_ID,
+                "link": link,
+                "comments": "\n".join(comments_list)
+            }).json()
+
+            if "order" in res:
+                update_balance(tg, -price)
+                save_order(res["order"], tg, "comments", link, qty)
+                requests.get(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    params={"chat_id": ADMIN_ID, "text": f"💬 New COMMENT order\nUser: {tg}\nLink: {link}\nOrder ID: {res['order']}"}
+                )
+                await update.message.reply_text(
+                    f"✅ Comment order placed!\n\n🆔 Order ID: {res['order']}\n📌 Comments: {qty}\n💰 Charged: ₹{price}\n💰 Remaining: ₹{round(bal-price,2)}",
+                    reply_markup=orders_balance_kb()
+                )
+            else:
+                await update.message.reply_text(f"❌ Order failed: {res}", reply_markup=orders_balance_kb())
+            context.user_data.clear()
+            return
+
         else:
-            await update.message.reply_text("❌ Order failed")
-        user_steps[tg] = None
-        context.user_data.clear()
+            return await update.message.reply_text("👇 Like ya Comment choose karo:", reply_markup=service_choice_kb())
+
+    # ── Unknown ──
+    await update.message.reply_text("📌 Post ka link bhejo:", reply_markup=orders_balance_kb())
 
 
-# ===== HANDLERS =====
+# ===== REGISTER HANDLERS =====
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CommandHandler("balance", check_balance_cmd))
 telegram_app.add_handler(CommandHandler("addbalance", add_balance_cmd))
-telegram_app.add_handler(CommandHandler("user", all_users))
 telegram_app.add_handler(CommandHandler("cutbalance", cut_balance_cmd))
+telegram_app.add_handler(CommandHandler("user", all_users))
 telegram_app.add_handler(CommandHandler("news", news_broadcast))
 telegram_app.add_handler(CommandHandler("ban", ban_user))
 telegram_app.add_handler(CommandHandler("unban", unban_user))
@@ -525,7 +451,6 @@ def razorpay_webhook():
         )
     return {"status": "ok"}
 
-# ===== START =====
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
